@@ -5,7 +5,11 @@ from pathlib import Path
 from plugin import InvenTreePlugin
 from plugin.mixins import SettingsMixin, UserInterfaceMixin
 
-__version__ = "0.1.2"
+__version__ = "0.1.3"
+
+# Set once the widget assets have been confirmed in static storage, so the
+# check below runs at most once per process rather than on every dashboard load.
+_ASSETS_READY = False
 
 
 class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
@@ -62,8 +66,41 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
             "jsFiles": files,
         }
 
+    def _ensure_assets_collected(self) -> None:
+        """Make sure the widget JS has been copied into static storage.
+
+        InvenTree copies plugin static files during installation, but that only
+        happens on a path that can be skipped -- and when it is skipped the
+        failure is silent: the plugin loads, registers its widgets, and every
+        one of them renders blank because the JS 404s. Rather than depend on
+        the installer having done it, verify and self-heal.
+        """
+        global _ASSETS_READY
+        if _ASSETS_READY:
+            return
+
+        try:
+            from django.contrib.staticfiles.storage import StaticFilesStorage
+
+            storage = StaticFilesStorage()
+            probe = f"plugins/{self.SLUG}/stock_status.js"
+            if storage.exists(probe):
+                _ASSETS_READY = True
+                return
+
+            from plugin.staticfiles import copy_plugin_static_files
+
+            copy_plugin_static_files(self.SLUG, check_reload=False)
+            _ASSETS_READY = storage.exists(probe)
+        except Exception:
+            # Never let asset housekeeping break the dashboard API.
+            from InvenTree.exceptions import log_error
+
+            log_error("ensure_assets_collected", scope="plugins")
+
     def get_ui_dashboard_items(self, request, context, **kwargs):
         """Register this plugin's dashboard widgets."""
+        self._ensure_assets_collected()
         product_id = (self.get_setting("PRODUCT_PART_ID") or "").strip()
         try:
             low_stock = int(self.get_setting("LOW_STOCK_FALLBACK") or 0)
