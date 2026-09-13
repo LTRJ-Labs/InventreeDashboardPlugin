@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "inventree-ltrj-dashboard"
+version = "0.1.0"
+description = "Custom InvenTree dashboard widgets for LTRJ Labs: stock status, assembly unit cost, and category mix."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+authors = [{ name = "LTRJ Labs" }]
+keywords = ["inventree", "dashboard", "plugin"]
+
+# InvenTree discovers plugins through this entry point group.
+[project.entry-points."inventree_plugins"]
+LTRJDashboard = "ltrj_dashboard:LTRJDashboardPlugin"
+
+[tool.setuptools]
+packages = ["ltrj_dashboard"]
+
+[tool.setuptools.package-data]
+ltrj_dashboard = ["static/plugins/ltrj-dashboard/*.js"]
