@@ -1,9 +1,11 @@
 """Custom dashboard widgets for LTRJ Labs' InvenTree instance."""
 
+from pathlib import Path
+
 from plugin import InvenTreePlugin
 from plugin.mixins import SettingsMixin, UserInterfaceMixin
 
-__version__ = "0.1.1"
+__version__ = "0.1.2"
 
 
 class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
@@ -37,6 +39,29 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
         },
     }
 
+    def _asset_report(self) -> dict:
+        """Report whether the widget JS actually shipped with the package.
+
+        The widgets are served from static storage, which is populated by a
+        copy step InvenTree runs at install time. When that copy does not
+        happen -- or the assets never made it into the built wheel -- every
+        widget renders blank with no server-side error. This puts the answer
+        somewhere readable (the dashboard feature API) instead of requiring a
+        shell inside the container.
+        """
+        here = Path(__file__).resolve().parent
+        static_dir = here / "static" / "plugins" / self.SLUG
+        try:
+            files = sorted(f.name for f in static_dir.glob("*.js")) if static_dir.is_dir() else []
+        except OSError as exc:
+            return {"packagePath": str(here), "error": str(exc)}
+        return {
+            "packagePath": str(here),
+            "staticDir": str(static_dir),
+            "staticDirExists": static_dir.is_dir(),
+            "jsFiles": files,
+        }
+
     def get_ui_dashboard_items(self, request, context, **kwargs):
         """Register this plugin's dashboard widgets."""
         product_id = (self.get_setting("PRODUCT_PART_ID") or "").strip()
@@ -53,7 +78,7 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
                 "icon": "ti:chart-donut:outline",
                 "source": self.plugin_static_file("stock_status.js"),
                 "options": {"width": 4, "height": 4},
-                "context": {"lowStockFallback": low_stock},
+                "context": {"lowStockFallback": low_stock, "assets": self._asset_report()},
             },
             {
                 "key": "ltrj-assembly-cost",
