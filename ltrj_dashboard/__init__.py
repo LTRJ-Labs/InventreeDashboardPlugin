@@ -3,7 +3,7 @@
 from plugin import InvenTreePlugin
 from plugin.mixins import SettingsMixin, UserInterfaceMixin
 
-__version__ = "0.1.0"
+__version__ = "0.1.1"
 
 
 class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):

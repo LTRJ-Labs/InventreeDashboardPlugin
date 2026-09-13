@@ -1,0 +1,5 @@
+# Belt and braces: package-data covers the wheel, this covers the sdist and any
+# build path that consults MANIFEST instead. The widgets are useless without
+# their JS, so it is worth stating twice.
+recursive-include ltrj_dashboard/static *.js
+include README.md
