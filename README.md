@@ -49,8 +49,14 @@ cost. The cost widget names those lines instead of hiding them in the total.
 
 ## Development
 
-Static assets live at `ltrj_dashboard/static/plugins/ltrj-dashboard/`, which is
-where `plugin_static_file()` resolves to (`static/plugins/<slug>/<file>`).
+Static assets live **flat** in `ltrj_dashboard/static/`.
+
+This matters and is easy to get wrong. For a pip-installed plugin, InvenTree
+copies everything under `<package>/static/` into `STATIC_ROOT/plugins/<slug>/`,
+preserving relative paths. Nesting the files as `static/plugins/<slug>/*.js` --
+which is how InvenTree's own *builtin* sample plugins are laid out, since those
+are collected by Django's app-directory finder instead -- produces
+`plugins/<slug>/plugins/<slug>/*.js` and every widget silently 404s.
 `renderDashboardItem(target, context)` receives the DOM node and the
 `InvenTreePluginContext` — `context.api` is an authenticated Axios instance,
 `context.theme` the Mantine theme, and `context.context` the per-widget data
