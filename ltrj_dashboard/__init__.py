@@ -61,9 +61,9 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
             return {"packagePath": str(here), "error": str(exc)}
         return {
             "packagePath": str(here),
-            "staticDir": str(static_dir),
             "staticDirExists": static_dir.is_dir(),
             "jsFiles": files,
+            "copy": getattr(self, "_copy_report", None),
         }
 
     def _ensure_assets_collected(self) -> None:
@@ -80,10 +80,14 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
             return
 
         try:
+            from django.conf import settings
             from django.contrib.staticfiles.storage import StaticFilesStorage
 
             storage = StaticFilesStorage()
             probe = f"plugins/{self.SLUG}/stock_status.js"
+            self._copy_report = {"staticRoot": str(getattr(settings, "STATIC_ROOT", None)),
+                                 "storageLocation": str(getattr(storage, "location", None)),
+                                 "existedBefore": storage.exists(probe)}
             if storage.exists(probe):
                 _ASSETS_READY = True
                 return
@@ -91,8 +95,15 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
             from plugin.staticfiles import copy_plugin_static_files
 
             copy_plugin_static_files(self.SLUG, check_reload=False)
+            self._copy_report["existsAfter"] = storage.exists(probe)
+            try:
+                dirs, files = storage.listdir(f"plugins/{self.SLUG}")
+                self._copy_report["listdir"] = sorted(files)
+            except Exception as exc:
+                self._copy_report["listdirError"] = str(exc)
             _ASSETS_READY = storage.exists(probe)
-        except Exception:
+        except Exception as exc:
+            self._copy_report = {"exception": f"{type(exc).__name__}: {exc}"}
             # Never let asset housekeeping break the dashboard API.
             from InvenTree.exceptions import log_error
 
@@ -115,7 +126,7 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
                 "icon": "ti:chart-donut:outline",
                 "source": self.plugin_static_file("stock_status.js"),
                 "options": {"width": 4, "height": 4},
-                "context": {"lowStockFallback": low_stock, "assets": self._asset_report()},
+                "context": {"lowStockFallback": low_stock, "assets": self._asset_report()},  # noqa
             },
             {
                 "key": "ltrj-assembly-cost",
