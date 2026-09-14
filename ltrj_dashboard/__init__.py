@@ -10,7 +10,7 @@ try:  # keep the reported version tied to what pip actually installed
 
     __version__ = _pkg_version("inventree-ltrj-dashboard")
 except Exception:  # source checkout, or metadata unavailable
-    __version__ = "0.3.2"
+    __version__ = "0.3.3"
 
 # Set once the widget assets have been confirmed in static storage, so the
 # check below runs at most once per process rather than on every dashboard load.
@@ -115,15 +115,15 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
             log_error("ensure_assets_collected", scope="plugins")
 
     def _asset(self, filename: str) -> str:
-        """Static URL for a widget, stamped with the plugin version.
+        """Static URL for a widget.
 
-        Browsers cache ES modules hard enough that a normal reload -- and often
-        a hard reload -- keeps serving the old file after an upgrade, which
-        looks exactly like the new code not having deployed. Stamping the
-        version onto the URL means every release fetches fresh, and nothing
-        between releases is re-downloaded.
+        A `?v=` cache-busting query was tried here and removed: it broke widget
+        loading in the frontend, which resolves plugin sources through
+        `new URL()` and a ':' split before importing them. Cache busting, if
+        needed again, belongs in the filename -- InvenTree's plugin_static_file
+        already prefers a hashed variant when one is shipped.
         """
-        return f"{self.plugin_static_file(filename)}?v={self.VERSION}"
+        return self.plugin_static_file(filename)
 
     def get_ui_dashboard_items(self, request, context, **kwargs):
         """Register this plugin's dashboard widgets."""

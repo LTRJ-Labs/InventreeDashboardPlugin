@@ -55,10 +55,15 @@ the sync always agree.
 
 ## Cache busting
 
-Widget URLs carry `?v=<plugin version>`. Browsers cache ES modules hard enough
-that a hard reload often keeps serving the old file after an upgrade, which is
-indistinguishable from the new code never having deployed. Bumping the version
-on every change is therefore load-bearing, not just housekeeping.
+Browsers cache ES modules hard enough that a hard reload can keep serving the
+previous widget after an upgrade. A `?v=` query on the source URL was tried and
+**broke widget loading entirely** -- the frontend resolves plugin sources
+through `new URL()` and a ':' split before importing, and does not survive a
+query string. If cache busting is needed, put the hash in the filename:
+`plugin_static_file()` already prefers a hashed variant when one is shipped.
+
+Until then, after upgrading use DevTools -> right-click reload -> *Empty Cache
+and Hard Reload*.
 
 ## Development
 
