@@ -2,4 +2,5 @@
 # build path that consults MANIFEST instead. The widgets are useless without
 # their JS, so it is worth stating twice.
 recursive-include ltrj_dashboard/static *.js
+include ltrj_dashboard/static/.vite/manifest.json
 include README.md

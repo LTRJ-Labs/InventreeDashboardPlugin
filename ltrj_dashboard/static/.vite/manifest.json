@@ -1,0 +1,27 @@
+{
+  "_chart.js": {
+    "file": "_chart-b28175df.js",
+    "src": "_chart.js",
+    "isEntry": true
+  },
+  "assembly_cost.js": {
+    "file": "assembly_cost-08ffb04a.js",
+    "src": "assembly_cost.js",
+    "isEntry": true
+  },
+  "category_mix.js": {
+    "file": "category_mix-c575f2e5.js",
+    "src": "category_mix.js",
+    "isEntry": true
+  },
+  "cost_panel.js": {
+    "file": "cost_panel-f2812dcf.js",
+    "src": "cost_panel.js",
+    "isEntry": true
+  },
+  "stock_status.js": {
+    "file": "stock_status-b3c9afef.js",
+    "src": "stock_status.js",
+    "isEntry": true
+  }
+}

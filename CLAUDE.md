@@ -153,13 +153,53 @@ default, and even with `sub_part_detail=true` the expanded object has `pk`,
 tree row rendered as "Uncategorised" until the widget started resolving names
 and categories from `/api/part/` instead, fetched once and cached.
 
-**Do not put a query string on a widget `source`.** A `?v=<version>`
-cache-buster stopped the widgets loading entirely -- the backend stayed healthy
-(plugin active, interface enabled, all features returned) but the frontend
-resolves plugin sources through `new URL()` and a ':' split before importing,
-and does not survive it. Reverted in 0.3.3. If cache busting is needed, put the
-hash in the filename: `plugin_static_file()` already prefers a hashed variant
-when one is shipped.
+**Do not put a query string on a widget `source` -- it can never work.**
+`usePluginSource` (`hooks/UseRemotePlugin.tsx`) builds the module URL as
+`url.origin + parts[0]`, where `parts` is `url.pathname.split(':')`. The search
+string is **discarded by construction**, and the ':' split runs over the
+pathname, so a `?v=` buster is dropped at best and corrupts the parse at worst.
+Reverted in 0.3.3. Hash the filename instead -- see below.
+
+**Cache busting is solved, via hashed filenames (0.6.0).** `build_assets.py`
+emits content-hashed copies of every module plus a Vite-style
+`static/.vite/manifest.json`. `plugin_static_file()` calls `hashed_file_lookup()`,
+which reads that manifest and serves `cost_panel-f2812dcf.js` in place of
+`cost_panel.js`. New release -> new filename -> new URL, so neither the browser
+nor Cloudflare can serve a stale module.
+
+**Run `python3 build_assets.py` before committing a release.** It is not
+automatic. Forgetting it ships the old hashes, and the manifest keeps pointing
+at the previous build -- the same stale-code symptom the hashing exists to
+prevent, just with extra steps. The script rewrites intra-plugin imports
+(`./_chart.js` -> `./_chart-<hash>.js`) in dependency order, so the hashes chain
+correctly; editing `_chart.js` changes every module's hash, which is correct.
+
+Packaging must carry both: `package-data` and `MANIFEST.in` include
+`static/*.js` **and** `static/.vite/manifest.json`.
+
+## The real development loop
+
+Reinstall-per-change is not how this is meant to be developed. InvenTree has a
+first-class plugin dev mode, in `plugin_static_file()`:
+
+```python
+if settings.DEBUG and settings.PLUGIN_DEV_HOST and settings.PLUGIN_DEV_SLUG \
+        and self.SLUG == settings.PLUGIN_DEV_SLUG:
+    url = f'{settings.PLUGIN_DEV_HOST}/src/{pathname}'
+    url = url.replace('.js', '.tsx')
+```
+
+Set `PLUGIN_DEV_SLUG=ltrj-dashboard` and `PLUGIN_DEV_HOST` to a local Vite dev
+server and the frontend loads modules straight from it -- edit, save, see it.
+`lib/plugin/InventreeHmrPlugin.tsx` injects an `import.meta.hot` block that
+calls `window.__plugin_hmr_callbacks`, so it is true hot reload, not a refresh.
+
+**Caveats, both real:** it requires `settings.DEBUG`, which should not be on for
+this instance, and the dev path rewrites `.js` to `.tsx`, so it expects the
+plugin-creator's TypeScript layout rather than plain `.js` modules. Using it
+means either a throwaway local InvenTree or adopting that layout. Worth it if
+frontend iteration continues; the hashed filenames are the fix that works
+without touching the server.
 
 **Browsers cache widget modules hard.** After an upgrade, a plain reload -- and
 often `Ctrl+Shift+R` -- keeps serving the previous file, which looks exactly
@@ -217,7 +257,7 @@ always counts.
 Both radios sit on the **mainboard's** BOM (pk 5), not MothNode's, so the filter
 has to apply at every depth of the walk rather than only to top-level lines.
 
-## Features (0.5.0)
+## Features (0.6.0)
 
 | Feature | Where | State |
 | :--- | :--- | :--- |
