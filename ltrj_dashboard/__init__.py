@@ -10,7 +10,7 @@ try:  # keep the reported version tied to what pip actually installed
 
     __version__ = _pkg_version("inventree-ltrj-dashboard")
 except Exception:  # source checkout, or metadata unavailable
-    __version__ = "0.3.1"
+    __version__ = "0.3.2"
 
 # Set once the widget assets have been confirmed in static storage, so the
 # check below runs at most once per process rather than on every dashboard load.
@@ -114,6 +114,17 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
 
             log_error("ensure_assets_collected", scope="plugins")
 
+    def _asset(self, filename: str) -> str:
+        """Static URL for a widget, stamped with the plugin version.
+
+        Browsers cache ES modules hard enough that a normal reload -- and often
+        a hard reload -- keeps serving the old file after an upgrade, which
+        looks exactly like the new code not having deployed. Stamping the
+        version onto the URL means every release fetches fresh, and nothing
+        between releases is re-downloaded.
+        """
+        return f"{self.plugin_static_file(filename)}?v={self.VERSION}"
+
     def get_ui_dashboard_items(self, request, context, **kwargs):
         """Register this plugin's dashboard widgets."""
         self._ensure_assets_collected()
@@ -129,7 +140,7 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
                 "title": "Stock Status",
                 "description": "Parts grouped by stock health.",
                 "icon": "ti:chart-donut:outline",
-                "source": self.plugin_static_file("stock_status.js"),
+                "source": self._asset("stock_status.js"),
                 "options": {"width": 4, "height": 4},
                 "context": {"lowStockFallback": low_stock, "assets": self._asset_report()},  # noqa
             },
@@ -138,7 +149,7 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
                 "title": "Assembly Unit Cost",
                 "description": "Browse the BOM at any build quantity, priced at that volume.",
                 "icon": "ti:currency-dollar:outline",
-                "source": self.plugin_static_file("assembly_cost.js"),
+                "source": self._asset("assembly_cost.js"),
                 "options": {"width": 5, "height": 4},
                 "context": {"productPartId": product_id},
             },
@@ -147,7 +158,7 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
                 "title": "Parts by Category",
                 "description": "How the part catalogue is distributed across categories.",
                 "icon": "ti:category:outline",
-                "source": self.plugin_static_file("category_mix.js"),
+                "source": self._asset("category_mix.js"),
                 "options": {"width": 4, "height": 4},
             },
         ]

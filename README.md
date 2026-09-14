@@ -53,6 +53,13 @@ unchanged -- a part quoted once at 5 off costs the same per unit at 1, 6 or 500.
 This matches how Inventree_SupplierSync computes its ladders, so the widget and
 the sync always agree.
 
+## Cache busting
+
+Widget URLs carry `?v=<plugin version>`. Browsers cache ES modules hard enough
+that a hard reload often keeps serving the old file after an upgrade, which is
+indistinguishable from the new code never having deployed. Bumping the version
+on every change is therefore load-bearing, not just housekeeping.
+
 ## Development
 
 Static assets live **flat** in `ltrj_dashboard/static/`.
