@@ -5,7 +5,12 @@ from pathlib import Path
 from plugin import InvenTreePlugin
 from plugin.mixins import SettingsMixin, UserInterfaceMixin
 
-__version__ = "0.1.3"
+try:  # keep the reported version tied to what pip actually installed
+    from importlib.metadata import version as _pkg_version
+
+    __version__ = _pkg_version("inventree-ltrj-dashboard")
+except Exception:  # source checkout, or metadata unavailable
+    __version__ = "0.2.0"
 
 # Set once the widget assets have been confirmed in static storage, so the
 # check below runs at most once per process rather than on every dashboard load.
