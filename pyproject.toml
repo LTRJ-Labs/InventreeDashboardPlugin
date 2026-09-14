@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "inventree-ltrj-dashboard"
-version = "0.2.0"
+version = "0.3.0"
 description = "Custom InvenTree dashboard widgets for LTRJ Labs: stock status, assembly unit cost, and category mix."
 readme = "README.md"
 requires-python = ">=3.9"

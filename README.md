@@ -5,7 +5,7 @@ Custom dashboard widgets for LTRJ Labs' InvenTree instance.
 | Widget | Shows |
 | :--- | :--- |
 | **Stock Status** | Parts grouped into in-stock / below-minimum / out-of-stock |
-| **Assembly Unit Cost** | Enter a build quantity and see unit cost at that volume, broken down by category, with unpriced lines called out |
+| **Assembly Unit Cost** | Enter a build quantity and browse the BOM as a tree — categories open into parts, sub-assemblies open into their own BOMs, every figure repriced at that volume |
 | **Parts by Category** | How the catalogue is distributed across categories |
 
 Widgets are dependency-free ES modules using the plugin context's authenticated
