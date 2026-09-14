@@ -5,7 +5,7 @@ Custom dashboard widgets for LTRJ Labs' InvenTree instance.
 | Widget | Shows |
 | :--- | :--- |
 | **Stock Status** | Parts grouped into in-stock / below-minimum / out-of-stock |
-| **Assembly Unit Cost** | Unit cost of the product assembly, broken down by category, with zero-priced lines called out |
+| **Assembly Unit Cost** | Enter a build quantity and see unit cost at that volume, broken down by category, with unpriced lines called out |
 | **Parts by Category** | How the catalogue is distributed across categories |
 
 Widgets are dependency-free ES modules using the plugin context's authenticated
@@ -46,6 +46,12 @@ than just "do I have any?".
 **Zero-priced BOM lines are surfaced deliberately.** A part with no supplier
 pricing contributes nothing to the rollup, which silently understates unit
 cost. The cost widget names those lines instead of hiding them in the total.
+
+**Tier selection never extrapolates.** The best price break at or below the
+required quantity wins, and below the smallest break the smallest price is used
+unchanged -- a part quoted once at 5 off costs the same per unit at 1, 6 or 500.
+This matches how Inventree_SupplierSync computes its ladders, so the widget and
+the sync always agree.
 
 ## Development
 
