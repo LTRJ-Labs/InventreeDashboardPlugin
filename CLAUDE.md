@@ -111,6 +111,39 @@ PY
 
 `manage.py collectplugins` is the supported way to force collection.
 
+## Frontend gotchas that cost real time
+
+**`/api/bom/` carries no category data.** `sub_part_detail` is `null` by
+default, and even with `sub_part_detail=true` the expanded object has `pk`,
+`name`, `description` and `pricing_min/max` but **no category field**. Every
+tree row rendered as "Uncategorised" until the widget started resolving names
+and categories from `/api/part/` instead, fetched once and cached.
+
+**Do not put a query string on a widget `source`.** A `?v=<version>`
+cache-buster stopped the widgets loading entirely -- the backend stayed healthy
+(plugin active, interface enabled, all features returned) but the frontend
+resolves plugin sources through `new URL()` and a ':' split before importing,
+and does not survive it. Reverted in 0.3.3. If cache busting is needed, put the
+hash in the filename: `plugin_static_file()` already prefers a hashed variant
+when one is shipped.
+
+**Browsers cache widget modules hard.** After an upgrade, a plain reload -- and
+often `Ctrl+Shift+R` -- keeps serving the previous file, which looks exactly
+like the plugin not having updated. Use DevTools -> right-click reload ->
+*Empty Cache and Hard Reload*. Static responses carry `max-age=14400`, so a
+stale copy can persist for four hours.
+
+**The install form times out but the install succeeds.** InvenTree runs `pip
+install` synchronously inside the HTTP request; the proxy gives up before pip
+finishes cloning and building. Verify by version in Admin Center -> Plugins
+rather than by re-running the install.
+
+**Version reporting.** `__version__` reads from package metadata, so it matches
+what pip installed. Before that fix, `pyproject.toml` and `__init__.py` carried
+independent strings and drifted -- the package installed as 0.1.5 while the
+plugin reported 0.1.3, which removed the only reliable signal of which code was
+running during a long debugging session.
+
 ## Instance data state (2026-09-12)
 
 Shapes what the widgets can meaningfully show:
