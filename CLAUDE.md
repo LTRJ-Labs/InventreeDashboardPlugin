@@ -227,12 +227,12 @@ running during a long debugging session.
   nothing, so the ~4.70 CAD figure recorded here previously was the PCBA alone.
   With the sensors on the BOM the default configuration is **~125 CAD/unit at
   qty 1**, ~82 at qty 100.
-- **Unpriced, and the reason the panel reports the total as a floor:**
-  `ESP32-S3-WROOM-1-N8R8` (pk 1, no supplier part) and `BG95mPCIE Module`
-  (pk 74, DigiKey supplier part but zero price breaks).
-- **BG95 contributing zero makes "Cellular + LoRa" cost exactly the same as
-  "LoRa"** in the panel. That is the missing price showing through, not a bug
-  in the configuration filter.
+- **Unpriced:** `ESP32-S3-WROOM-1-N8R8` (pk 1, no supplier part at all) is now
+  the only one. It is why the panel reports every total as a floor.
+- **BG95 (pk 74) priced 2026-09-14** by the first successful sync in a while:
+  DigiKey `2958-BG95M3LA-MINIPCIE-ND`, MPN `BG95M3LA-MINIPCIE`, 5 breaks from
+  66.63 CAD at 1 down to 48.67 CAD at 300. Cellular and LoRa now cost
+  differently, which they did not while BG95 contributed zero.
 - **pk 72** (JLCPCB Turnkey, dead after the fab-as-a-BOM-line change) deleted.
 - **pk 65 merged into pk 3**: two enclosure records existed, pk 3 held the
   supplier pricing and pk 65 the correct name. pk 3 survives, renamed
@@ -257,7 +257,7 @@ always counts.
 Both radios sit on the **mainboard's** BOM (pk 5), not MothNode's, so the filter
 has to apply at every depth of the walk rather than only to top-level lines.
 
-## Features (0.6.1)
+## Features (0.6.2)
 
 | Feature | Where | State |
 | :--- | :--- | :--- |
@@ -347,3 +347,19 @@ Catches render-time bugs in seconds instead of a release cycle. Import the modul
 as `./cost_panel.js?v=${Date.now()}` or the browser caches it between runs.
 **Wrap the call in try/catch and read the error**; without that this bug looks
 like an infinite load.
+
+## Verified unit cost (CAD, 2026-09-14, after the first good sync)
+
+| Configuration | qty 1 | qty 10 | qty 100 |
+| :--- | ---: | ---: | ---: |
+| **Cellular + Ultrasonic** *(default)* | 192.03 | 162.82 | 133.00 |
+| Cellular + Hydrostatic | 248.43 | 219.22 | 189.41 |
+| LoRa + Ultrasonic | 160.93 | 140.04 | 117.05 |
+| LoRa + Hydrostatic | 217.34 | 196.44 | 173.46 |
+| Cellular + LoRa + Ultrasonic | 227.56 | 198.35 | 168.53 |
+| Cellular + LoRa + Hydrostatic | 283.97 | 254.75 | 224.94 |
+
+Every figure is a floor until pk 1 (ESP32) is sourced. Note the volume curve is
+carried almost entirely by the PCBA and the BG95: the ultrasonic, hydrostatic
+and solar parts each hold a single price break, so they do not move with
+quantity at all.

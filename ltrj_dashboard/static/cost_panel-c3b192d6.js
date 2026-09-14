@@ -592,7 +592,7 @@ export async function renderCostPanel(target, ctx) {
 
         ${unpriced.length ? `<div class="ltrj-note">
           <span>⚠</span>
-          <div><strong>${unpriced.length} line${unpriced.length === 1 ? '' : 's'} carry no supplier pricing</strong>
+          <div><strong>${unpriced.length} line${unpriced.length === 1 ? ' carries' : 's carry'} no supplier pricing</strong>
           and contribute nothing to the total, so ${esc(money(perUnit))}/unit is a floor, not the real cost:
           ${esc(unpriced.slice(0, 6).map((n) => n.name).join(', '))}${unpriced.length > 6 ? `, and ${unpriced.length - 6} more` : ''}.</div>
         </div>` : ''}
