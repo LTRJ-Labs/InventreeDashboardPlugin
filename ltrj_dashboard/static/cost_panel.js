@@ -132,13 +132,17 @@ function tierPrice(breaks, need) {
  */
 async function loadPricingData(api, queryClient) {
   const run = async () => {
-    const [supplierParts, breaks, allParts] = await Promise.all([
+    const [supplierParts, breaks, allParts, bomLines] = await Promise.all([
       fetchAll(api, '/api/company/part/', { active: true }),
       fetchAll(api, '/api/company/price-break/', {}),
       // /api/bom/ returns no category for its lines even with sub_part_detail
       // expanded, so the catalogue is fetched once and resolves name, category
       // and stock for every row in the tree.
       fetchAll(api, '/api/part/', {}),
+      // The entire BOM table in one request. Fetching it per part instead cost
+      // one round trip per node -- 72 sequential calls for MothNode, ~18s of
+      // blank panel before the first render, repeated on every refresh.
+      fetchAll(api, '/api/bom/', {}),
     ]);
     let rates = {}, currency = 'USD';
     try {
@@ -146,7 +150,7 @@ async function loadPricingData(api, queryClient) {
       rates = fx?.exchange_rates ?? {};
       currency = fx?.base_currency ?? 'USD';
     } catch (e) { /* unconverted prices are better than no panel */ }
-    return { supplierParts, breaks, allParts, rates, currency, at: Date.now() };
+    return { supplierParts, breaks, allParts, bomLines, rates, currency, at: Date.now() };
   };
 
   if (queryClient?.fetchQuery) {
@@ -160,7 +164,7 @@ async function loadPricingData(api, queryClient) {
 }
 
 function buildIndex(data) {
-  const { supplierParts, breaks, allParts, rates, currency } = data;
+  const { supplierParts, breaks, allParts, bomLines, rates, currency } = data;
 
   const partInfo = new Map();
   for (const p of allParts) {
@@ -206,7 +210,14 @@ function buildIndex(data) {
   const infoOf = (id) => partInfo.get(id)
     || { name: `Part ${id}`, category: 'Uncategorised', stock: 0, minimum: 0, onOrder: 0 };
 
-  return { infoOf, unitCost, currency };
+  const childLines = new Map();
+  for (const l of bomLines ?? []) {
+    if (!childLines.has(l.part)) childLines.set(l.part, []);
+    childLines.get(l.part).push(l);
+  }
+  const kidsOf = (id) => childLines.get(id) ?? [];
+
+  return { infoOf, unitCost, kidsOf, currency };
 }
 
 /* ---------------------------------------------------------------- costing */
@@ -223,8 +234,8 @@ function buildIndex(data) {
  * descendant is. Returning `true` unconditionally is how a sub-assembly of
  * entirely unpriced parts reports a confident cost of zero.
  */
-async function buildTree(partId, need, depth, deps) {
-  const { infoOf, unitCost, bomOf, excluded } = deps;
+function buildTree(partId, need, depth, deps, ancestry) {
+  const { infoOf, unitCost, kidsOf, excluded } = deps;
   const buyUnit = unitCost(partId, need);
   const info = infoOf(partId);
 
@@ -232,9 +243,14 @@ async function buildTree(partId, need, depth, deps) {
   let makeCost = null;
   let childrenPriced = true;
 
-  if (depth < MAX_DEPTH) {
-    const lines = await bomOf(partId);
+  // A part that contains itself, however indirectly, would recurse until the
+  // depth cap and silently multiply its own cost into the total on the way.
+  const looped = ancestry.has(partId);
+
+  if (!looped && depth < MAX_DEPTH) {
+    const lines = kidsOf(partId);
     if (lines.length) {
+      const deeper = new Set(ancestry).add(partId);
       children = [];
       let total = 0;
       for (const line of lines) {
@@ -242,7 +258,7 @@ async function buildTree(partId, need, depth, deps) {
         // at any depth -- the radios sit on the mainboard's BOM, not the top.
         if (excluded?.has(line.sub_part)) continue;
         const per = Number(line.quantity ?? 0);
-        const kid = await buildTree(line.sub_part, per * need, depth + 1, deps);
+        const kid = buildTree(line.sub_part, per * need, depth + 1, deps, deeper);
         kid.per = per;
         kid.reference = line.reference || '';
         total += kid.cost;
@@ -267,7 +283,7 @@ async function buildTree(partId, need, depth, deps) {
     stock: info.stock,
     minimum: info.minimum,
     onOrder: info.onOrder,
-    need, cost, priced, children,
+    need, cost, priced, children, looped,
     unit: need > 0 ? cost / need : 0,
     buyCost, makeCost,
   };
@@ -426,18 +442,12 @@ export async function renderCostPanel(target, ctx) {
 
   let qty = loadQty();
   const open = loadSet(OPEN_STORE);
-  const groups = Array.isArray(ctx?.context?.configGroups) ? ctx.context.configGroups : [];
-  let choice = loadChoice(groups);
+  const configGroups = Array.isArray(ctx?.context?.configGroups) ? ctx.context.configGroups : [];
+  let choice = loadChoice(configGroups);
 
   target.innerHTML = `<div style="padding:1.5rem;color:var(--mantine-color-dimmed);font-size:.85rem">Loading pricing…</div>`;
 
   let index, fetchedAt;
-  const bomCache = new Map();
-
-  async function bomOf(partId) {
-    if (!bomCache.has(partId)) bomCache.set(partId, await fetchAll(api, '/api/bom/', { part: partId }));
-    return bomCache.get(partId);
-  }
 
   async function loadIndex() {
     const data = await loadPricingData(api, ctx?.queryClient);
@@ -504,24 +514,34 @@ export async function renderCostPanel(target, ctx) {
 
   let disposed = false;
 
-  async function render() {
+  function render() {
     if (disposed || !target.isConnected) return;
+    try {
+      renderInner();
+    } catch (err) {
+      console.error('[ltrj-dashboard] cost panel render failed', err);
+      target.innerHTML = `<div style="padding:1rem;color:var(--mantine-color-red-6);font-size:.85rem">`
+        + `Cost panel failed to render: ${esc(err?.message ?? err)}</div>`;
+    }
+  }
 
-    const { excluded, universe } = resolveOptional(groups, choice);
-    const tree = await buildTree(rootId, qty, 0, {
-      infoOf: index.infoOf, unitCost: index.unitCost, bomOf, excluded,
-    });
+  function renderInner() {
+
+    const { excluded, universe } = resolveOptional(configGroups, choice);
+    const tree = buildTree(rootId, qty, 0, {
+      infoOf: index.infoOf, unitCost: index.unitCost, kidsOf: index.kidsOf, excluded,
+    }, new Set());
     const nodes = tree.children ?? [];
     const total = tree.cost;
     const perUnit = qty > 0 ? total / qty : 0;
     const unpriced = countUnpriced(nodes);
 
     // Top-level category split drives the bar and the legend.
-    const groups = new Map();
+    const categoryTotals = new Map();
     for (const n of nodes) {
-      groups.set(n.category, (groups.get(n.category) ?? 0) + n.cost);
+      categoryTotals.set(n.category, (categoryTotals.get(n.category) ?? 0) + n.cost);
     }
-    const ordered = [...groups.entries()].sort((a, b) => b[1] - a[1]);
+    const ordered = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]);
     const bar = ordered.map(([cat, cost], i) => {
       const pct = total > 0 ? (cost / total) * 100 : 0;
       return `<div style="width:${pct}%;background:${colours.series[i % colours.series.length]}"
@@ -546,8 +566,8 @@ export async function renderCostPanel(target, ctx) {
               <input id="ltrj-qty" class="ltrj-input" type="number" min="1" step="1" value="${qty}">
               ${PRESETS.map((p) => `<button class="ltrj-preset" data-qty="${p}" data-active="${p === qty ? 1 : 0}">${p}</button>`).join('')}
             </div>
-            ${groups.length ? `<div class="ltrj-config" style="margin-top:.85rem">
-              ${groups.map((g) => `<div>
+            ${configGroups.length ? `<div class="ltrj-config" style="margin-top:.85rem">
+              ${configGroups.map((g) => `<div>
                 <div class="ltrj-label">${esc(g.label ?? g.key)}</div>
                 <select class="ltrj-select" data-group="${esc(g.key)}" style="margin-top:.3rem">
                   ${(g.options || []).map((o) => `<option value="${esc(o.key)}"${o.key === choice[g.key] ? ' selected' : ''}>${esc(o.label ?? o.key)}</option>`).join('')}
@@ -647,13 +667,12 @@ export async function renderCostPanel(target, ctx) {
       try {
         await ctx?.queryClient?.invalidateQueries?.({ queryKey: ['ltrj-cost-panel', 'pricing'] });
       } catch (e) { /* ignore */ }
-      bomCache.clear();
       await loadIndex();
       render();
     });
   }
 
-  await render();
+  render();
 
   // Keep the panel current without a reload. InvenTree has no push channel for
   // pricing, so this polls -- paced to SupplierSync's cadence rather than tight,
@@ -663,7 +682,7 @@ export async function renderCostPanel(target, ctx) {
     try {
       await ctx?.queryClient?.invalidateQueries?.({ queryKey: ['ltrj-cost-panel', 'pricing'] });
       await loadIndex();
-      await render();
+      render();
     } catch (e) { /* a failed refresh should never blank a working panel */ }
   }, REFRESH_MS);
 }

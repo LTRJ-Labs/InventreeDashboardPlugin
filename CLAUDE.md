@@ -257,7 +257,7 @@ always counts.
 Both radios sit on the **mainboard's** BOM (pk 5), not MothNode's, so the filter
 has to apply at every depth of the walk rather than only to top-level lines.
 
-## Features (0.6.0)
+## Features (0.6.1)
 
 | Feature | Where | State |
 | :--- | :--- | :--- |
@@ -316,3 +316,34 @@ Quantity and tree-expansion state persist per viewer in `localStorage`.
   answering "no" unconditionally. Now probes `static/`.
 - **Absolute container paths** were being returned to every dashboard user in
   the widget `context`. Dropped.
+
+## Fixed in 0.6.1
+
+- **The panel hung on "Loading pricing…" forever.** `renderInner` read the
+  configuration list, named `groups`, while the same function later declared
+  `const groups = new Map()` for the category rollup. The later `const` shadows
+  the outer binding for the whole function body, so the earlier read hit the
+  temporal dead zone: `ReferenceError: Cannot access 'groups' before
+  initialization`. Renamed to `configGroups` / `categoryTotals`.
+- **The error was invisible**, which is what made it look like a hang rather
+  than a crash: `try/catch` wrapped `loadIndex()` but not `render()`, so a throw
+  escaped and left the loading placeholder on screen. `render()` now catches,
+  logs, and paints the message.
+- **72 sequential API calls per render.** Since 0.4.0 the tree walks every
+  node's BOM (for make-vs-buy), and `bomOf()` fetched one part at a time -- ~18s
+  of blank panel before the first paint, on a BOM of only 71 rows. The whole
+  `/api/bom/` table is now fetched once with the rest of the data and indexed
+  client-side, which also makes `buildTree` fully synchronous. **5 calls, ~30ms.**
+- **Cycle guard.** `buildTree` carries an ancestry set; a part that contained
+  itself previously recursed to the depth cap, multiplying its cost in on the way.
+
+## Testing the panel without deploying it
+
+`/tmp/paneltest` pattern, worth repeating: dump the five API payloads to a
+`fixture.js`, stub `ctx` (`api.get` serving from the fixture, `id`, `instance`,
+`theme`, `context.configGroups`), serve the directory over **http** -- `file://`
+fails, ES modules need a real origin -- and drive it with the browse skill.
+Catches render-time bugs in seconds instead of a release cycle. Import the module
+as `./cost_panel.js?v=${Date.now()}` or the browser caches it between runs.
+**Wrap the call in try/catch and read the error**; without that this bug looks
+like an infinite load.
