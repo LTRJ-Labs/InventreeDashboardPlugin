@@ -65,15 +65,29 @@ export async function renderDashboardItem(target, ctx) {
     }
   } catch (err) { message(target, `Could not load product part: ${err?.message ?? err}`, 'error'); return; }
 
-  let supplierParts, breaks, rates, currency = 'USD';
+  let supplierParts, breaks, allParts, rates, currency = 'USD';
   try {
-    [supplierParts, breaks] = await Promise.all([
+    // /api/bom/ returns neither name nor category for its lines -- even with
+    // sub_part_detail expanded there is no category field -- so the part
+    // catalogue is fetched once and used to resolve both.
+    [supplierParts, breaks, allParts] = await Promise.all([
       fetchAll(api, '/api/company/part/', { active: true }),
       fetchAll(api, '/api/company/price-break/', {}),
+      fetchAll(api, '/api/part/', {}),
     ]);
     const fx = (await api.get('/api/currency/exchange/'))?.data;
     rates = fx?.exchange_rates ?? {}; currency = fx?.base_currency ?? 'USD';
   } catch (err) { message(target, `Could not load pricing: ${err?.message ?? err}`, 'error'); return; }
+
+  const partInfo = new Map();
+  for (const p of allParts) {
+    partInfo.set(p.pk, {
+      name: p.name || `Part ${p.pk}`,
+      category: p.category_detail?.name || p.category_name || 'Uncategorised',
+      assembly: !!p.assembly,
+    });
+  }
+  const infoOf = (id) => partInfo.get(id) || { name: `Part ${id}`, category: 'Uncategorised' };
 
   const spByPart = new Map();
   for (const sp of supplierParts) {
@@ -120,13 +134,12 @@ export async function renderDashboardItem(target, ctx) {
     const children = [];
     let total = 0;
     for (const l of lines) {
-      const sub = l.sub_part_detail ?? {};
+      const info = infoOf(l.sub_part);
       const per = Number(l.quantity ?? 0);
       const r = await costOf(l.sub_part, per * need, depth + 1);
       total += r.cost;
       children.push({
-        id: l.sub_part, name: sub.name || `Part ${l.sub_part}`,
-        category: sub.category_detail?.name || sub.category_name || 'Uncategorised',
+        id: l.sub_part, name: info.name, category: info.category,
         per, need: per * need, cost: r.cost, priced: r.priced, kids: r.children,
       });
     }

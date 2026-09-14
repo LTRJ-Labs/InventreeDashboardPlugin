@@ -10,7 +10,7 @@ try:  # keep the reported version tied to what pip actually installed
 
     __version__ = _pkg_version("inventree-ltrj-dashboard")
 except Exception:  # source checkout, or metadata unavailable
-    __version__ = "0.3.0"
+    __version__ = "0.3.1"
 
 # Set once the widget assets have been confirmed in static storage, so the
 # check below runs at most once per process rather than on every dashboard load.
@@ -136,7 +136,7 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
             {
                 "key": "ltrj-assembly-cost",
                 "title": "Assembly Unit Cost",
-                "description": "Unit cost of the product assembly, broken down by category.",
+                "description": "Browse the BOM at any build quantity, priced at that volume.",
                 "icon": "ti:currency-dollar:outline",
                 "source": self.plugin_static_file("assembly_cost.js"),
                 "options": {"width": 5, "height": 4},
