@@ -23,12 +23,15 @@ const money = (v, cur) => {
 function tierPrice(breaks, need) {
   if (!breaks || !breaks.length) return null;
   const ladder = breaks
-    .map((b) => ({ q: Number(b.quantity), p: Number(b.price) }))
+    .map((b) => ({ q: Number(b.quantity), p: Number(b.price), c: b.price_currency }))
     .filter((b) => Number.isFinite(b.q) && Number.isFinite(b.p))
     .sort((a, b) => a.q - b.q);
   if (!ladder.length) return null;
   const ok = ladder.filter((b) => b.q <= need);
-  return (ok.length ? ok[ok.length - 1] : ladder[0]).p;
+  const hit = ok.length ? ok[ok.length - 1] : ladder[0];
+  // Carry the currency of the break that actually won. Reading it off the
+  // first row instead is wrong whenever one supplier part quotes in two.
+  return { price: hit.p, currency: hit.c };
 }
 
 function loadSet(key) {
@@ -104,11 +107,10 @@ export async function renderDashboardItem(target, ctx) {
   function unitCost(partId, need) {
     let best = null;
     for (const sp of spByPart.get(partId) ?? []) {
-      const rows = bkBySp.get(sp.pk) ?? [];
-      const p = tierPrice(rows, need);
-      if (p == null) continue;
+      const hit = tierPrice(bkBySp.get(sp.pk) ?? [], need);
+      if (!hit) continue;
       const pack = Number(sp.pack_quantity_native ?? 1) || 1;
-      const u = toBase(p, rows[0]?.price_currency) / pack;
+      const u = toBase(hit.price, hit.currency) / pack;
       if (best == null || u < best) best = u;
     }
     return best;
@@ -133,17 +135,22 @@ export async function renderDashboardItem(target, ctx) {
     if (!lines.length) return { cost: 0, children: null, priced: false };
     const children = [];
     let total = 0;
+    let allPriced = true;
     for (const l of lines) {
       const info = infoOf(l.sub_part);
       const per = Number(l.quantity ?? 0);
       const r = await costOf(l.sub_part, per * need, depth + 1);
       total += r.cost;
+      if (!r.priced) allPriced = false;
       children.push({
         id: l.sub_part, name: info.name, category: info.category,
         per, need: per * need, cost: r.cost, priced: r.priced, kids: r.children,
       });
     }
-    return { cost: total, children, priced: true };
+    // An assembly is only priced when everything beneath it is. Returning true
+    // unconditionally is how a sub-assembly of entirely unpriced parts reported
+    // a confident cost of zero, with no warning anywhere up the tree.
+    return { cost: total, children, priced: allPriced };
   }
 
   const colours = palette(ctx);

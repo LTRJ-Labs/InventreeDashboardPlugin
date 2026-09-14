@@ -10,7 +10,7 @@ try:  # keep the reported version tied to what pip actually installed
 
     __version__ = _pkg_version("inventree-ltrj-dashboard")
 except Exception:  # source checkout, or metadata unavailable
-    __version__ = "0.3.3"
+    __version__ = "0.4.0"
 
 # Set once the widget assets have been confirmed in static storage, so the
 # check below runs at most once per process rather than on every dashboard load.
@@ -59,16 +59,14 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
         shell inside the container.
         """
         here = Path(__file__).resolve().parent
-        static_dir = here / "static" / "plugins" / self.SLUG
+        static_dir = here / "static"
         try:
             files = sorted(f.name for f in static_dir.glob("*.js")) if static_dir.is_dir() else []
         except OSError as exc:
-            return {"packagePath": str(here), "error": str(exc)}
+            return {"error": str(exc)}
         return {
-            "packagePath": str(here),
             "staticDirExists": static_dir.is_dir(),
             "jsFiles": files,
-            "copy": getattr(self, "_copy_report", None),
         }
 
     def _ensure_assets_collected(self) -> None:
@@ -124,6 +122,29 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
         already prefers a hashed variant when one is shipped.
         """
         return self.plugin_static_file(filename)
+
+    def get_ui_panels(self, request, context, **kwargs):
+        """Add a cost breakdown panel to Part detail pages.
+
+        `context` carries `target_model` / `target_id` for the page being
+        viewed, so the panel is only offered where it means something. The
+        frontend hands the panel the part itself (`ctx.instance`), so nothing
+        needs passing through here to identify it.
+        """
+        self._ensure_assets_collected()
+
+        if (context or {}).get("target_model") != "part":
+            return []
+
+        return [
+            {
+                "key": "ltrj-cost-breakdown",
+                "title": "Cost Breakdown",
+                "description": "BOM cost at any build quantity, with live supplier pricing.",
+                "icon": "ti:currency-dollar:outline",
+                "source": self._asset("cost_panel.js:renderCostPanel"),
+            }
+        ]
 
     def get_ui_dashboard_items(self, request, context, **kwargs):
         """Register this plugin's dashboard widgets."""

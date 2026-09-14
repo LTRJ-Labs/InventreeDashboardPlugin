@@ -2,10 +2,25 @@
 
 Custom dashboard widgets for LTRJ Labs' InvenTree instance.
 
+### Cost Breakdown panel
+
+A **Cost Breakdown** tab on every Part detail page. Enter any build quantity and
+the whole BOM reprices at that volume: unit cost and total up top, then a table
+that drills into sub-assemblies to eight levels, showing per-line unit price,
+cost per build unit, extended cost, and stock coverage against what the build
+needs. Part names open the preview drawer, so you can explore without losing
+your place. Pricing refreshes on its own every five minutes.
+
+Lines with no supplier pricing are called out above the table rather than
+quietly contributing zero, and a sub-assembly is only reported as priced when
+everything beneath it is.
+
+### Dashboard widgets
+
 | Widget | Shows |
 | :--- | :--- |
 | **Stock Status** | Parts grouped into in-stock / below-minimum / out-of-stock |
-| **Assembly Unit Cost** | Enter a build quantity and browse the BOM as a tree — categories open into parts, sub-assemblies open into their own BOMs, every figure repriced at that volume |
+| **Assembly Unit Cost** | The panel's smaller ancestor — a quantity input and a BOM tree in a dashboard tile |
 | **Parts by Category** | How the catalogue is distributed across categories |
 
 Widgets are dependency-free ES modules using the plugin context's authenticated
@@ -26,7 +41,8 @@ From InvenTree → Admin Center → Plugins → Install Plugin:
 git+https://github.com/LTRJ-Labs/InventreeDashboardPlugin.git
 ```
 
-Then activate the plugin, and add the widgets from the dashboard's
+Then activate the plugin. The **Cost Breakdown** panel appears on Part detail
+pages automatically; dashboard widgets must be added from the dashboard's
 **Add Widget** drawer.
 
 ## Settings

@@ -39,18 +39,52 @@ returns a list of dicts: `key`, `title`, `source` (required); `description`,
 `icon`, `options` (`width`/`height`), `context` (optional). Build `source` with
 `self.plugin_static_file('file.js')`, optionally `'file.js:functionName'`.
 
-**JavaScript** — plain ES module, `export function renderDashboardItem(target, ctx)`.
-`target` is the DOM node. `ctx` is the `InvenTreePluginContext`:
+**Panels** — `UserInterfaceMixin.get_ui_panels(self, request, context, **kwargs)`,
+same dict shape minus `options.width/height` (`CustomPanelOptions` carries only
+`icon`; panels are full-width tabs). `context` carries **`target_model`** and
+**`target_id`** for the page being viewed, so filter on
+`context.get('target_model') == 'part'`. The frontend passes the panel its own
+part, so nothing needs threading through the Python `context` to identify it.
+
+**JavaScript** — plain ES module. Dashboard items export
+`renderDashboardItem(target, ctx)`; panels export `renderPanel(target, ctx)`, or
+any name addressed as `'file.js:funcName'`. `target` is the DOM node. `ctx` is
+the `InvenTreePluginContext` (`src/frontend/lib/types/Plugins.tsx`), which is far
+richer than the four keys this file used to list:
 
 | Key | Use |
 | :--- | :--- |
 | `ctx.api` | **authenticated Axios instance** — the way to query the API |
-| `ctx.theme` | Mantine theme; take colours from here for light/dark |
-| `ctx.context` | the per-widget `context` dict from the Python side |
-| `ctx.user`, `ctx.navigate`, `ctx.forms`, `ctx.globalSettings` | also available |
+| `ctx.queryClient` | **TanStack QueryClient** — `fetchQuery` with a `staleTime` for cached reads, `invalidateQueries` to force a refresh. Better than hand-rolled Maps. |
+| `ctx.model`, `ctx.id`, `ctx.instance` | panels only: the model type, pk, and the **already-fetched instance** — a Part panel needs no lookup |
+| `ctx.theme`, `ctx.colorScheme` | Mantine theme; take colours from here for light/dark |
+| `ctx.tables.renderTable` | renders InvenTree's own data table (sorting, filtering, paging). Lazy-loaded, so it costs nothing unless used. |
+| `ctx.preview.open(model, id)` | global preview drawer — drill down without leaving the page |
+| `ctx.forms` | InvenTree's API form modals, incl. `forms.stockActions` |
+| `ctx.reloadInstance`, `ctx.reloadContent` | refresh the instance / re-render the panel after a write |
+| `ctx.version` | `{inventree, react, reactDom, mantine}` — check before touching the React globals |
+| `ctx.context` | the per-feature `context` dict from the Python side |
+| `ctx.user`, `ctx.navigate`, `ctx.i18n`, `ctx.globalSettings`, `ctx.thumbnail`, `ctx.renderInstance`, `ctx.importer` | also available |
 
-React and Mantine are exposed globally, but these widgets use plain DOM
-deliberately — small enough to stay legible, and no coupling to a React version.
+React and Mantine are exposed globally, but these widgets and the panel use
+plain DOM deliberately — legible at this size, and no coupling to a React
+version. `ctx.version` is there if that call is ever revisited.
+
+## ⚠️ Navigation items do not work in 1.5.0
+
+`get_ui_navigation_items` exists on the mixin and the builtin sample plugin
+returns one, but the frontend never renders it —
+`src/frontend/src/components/nav/NavigationDrawer.tsx`:
+
+```js
+// TODO @matmair #1: implement plugin loading and menu item generation see #5269
+const plugins: MenuLinkItem[] = [];
+```
+
+So there is **no way to add a custom page or route** from a plugin on this
+version. Even once implemented, nav items carry only `options.url` and no
+`source`, so they are links, not rendered pages. **Panels are the ceiling** —
+do not plan around a full-page plugin view.
 
 ## Requirements
 
@@ -159,13 +193,18 @@ Shapes what the widgets can meaningfully show:
   (pk 4) have no supplier pricing, and no JLCPCB fab/assembly line exists yet.
   The cost widget names zero-priced lines deliberately for this reason.
 
-## Widgets (0.3.3)
+## Features (0.4.0)
 
-| Widget | State |
-| :--- | :--- |
-| Stock Status | Working. One slice until stock exists; explains why in-widget. |
-| Assembly Unit Cost | Build-quantity input with presets, plus a browsable BOM tree — categories open into parts, sub-assemblies into their own BOMs, recursively to 6 levels. Costs computed bottom-up; unpriced parts marked rather than silently zero. |
-| Parts by Category | Working. Largest 7 categories, tail rolled into "Other". |
+| Feature | Where | State |
+| :--- | :--- | :--- |
+| **Cost Breakdown** | **Part page panel** | The main surface. Quantity input + presets, full-width BOM table drilling to 8 levels, per-line unit price / per-build-unit / extended cost, stock coverage chips, category cost bar, make-vs-buy on priced sub-assemblies, click-through via the preview drawer. Repolls every 5 min and self-cancels when detached. |
+| Stock Status | Dashboard | Working. One slice until stock exists; explains why in-widget. |
+| Assembly Unit Cost | Dashboard | The panel's cramped ancestor. Still works; the panel supersedes it. |
+| Parts by Category | Dashboard | Working. Largest 7 categories, tail rolled into "Other". |
+
+**The panel is the answer to "the tree does not fit".** A dashboard item is a
+5×4 grid tile with `overflow:auto`; a recursive BOM tree was always going to
+lose that fight. `get_ui_panels` gives it the full page width.
 
 Tier selection in the cost widget mirrors `Inventree_SupplierSync`'s
 `tier_price()` exactly — best break at or below the required quantity, and
@@ -188,5 +227,28 @@ Quantity and tree-expansion state persist per viewer in `localStorage`.
   arrow needs ~7 days.
 - **Cleanup**: `STATIC_ROOT/plugins/ltrj-dashboard/plugins/` is orphaned junk
   from the old nested layout. Safe to delete.
+- **The dashboard cost widget is now redundant** with the panel. Keep or drop,
+  but do not evolve both — the costing logic is duplicated across
+  `assembly_cost.js` and `cost_panel.js` and will drift.
 - The distribution name (`inventree-ltrj-dashboard`) does not match the repo
   name, which has already caused one install failure. Worth aligning.
+
+## Fixed in 0.4.0
+
+- **`priced` never propagated.** `costOf` returned `priced: true` for any part
+  with BOM children regardless of whether those children priced, so a
+  sub-assembly of entirely unpriced parts reported a confident cost of zero with
+  no ⚠ anywhere up the tree — exactly the silent understatement the widget
+  exists to prevent. Now `priced` is the AND of its children.
+- **Currency was read off the wrong row.** `toBase()` used
+  `rows[0].price_currency` rather than the currency of the break `tierPrice()`
+  actually selected. Wrong conversion whenever one supplier part quotes in two
+  currencies, silent when it happens. `tierPrice()` now returns
+  `{price, currency}`.
+- **The asset diagnostic was probing the path that was removed.**
+  `_asset_report()` checked `static/plugins/<slug>/` — the nested layout fixed
+  in 0.1.x — so `staticDirExists` was permanently `False` and `jsFiles`
+  permanently `[]`. The one diagnostic built to answer "did the JS ship?" was
+  answering "no" unconditionally. Now probes `static/`.
+- **Absolute container paths** were being returned to every dashboard user in
+  the widget `context`. Dropped.
