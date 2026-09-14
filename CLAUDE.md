@@ -159,9 +159,28 @@ Shapes what the widgets can meaningfully show:
   (pk 4) have no supplier pricing, and no JLCPCB fab/assembly line exists yet.
   The cost widget names zero-priced lines deliberately for this reason.
 
+## Widgets (0.3.3)
+
+| Widget | State |
+| :--- | :--- |
+| Stock Status | Working. One slice until stock exists; explains why in-widget. |
+| Assembly Unit Cost | Build-quantity input with presets, plus a browsable BOM tree — categories open into parts, sub-assemblies into their own BOMs, recursively to 6 levels. Costs computed bottom-up; unpriced parts marked rather than silently zero. |
+| Parts by Category | Working. Largest 7 categories, tail rolled into "Other". |
+
+Tier selection in the cost widget mirrors `Inventree_SupplierSync`'s
+`tier_price()` exactly — best break at or below the required quantity, and
+below the smallest break the smallest price unchanged — so the widget and the
+sync cannot disagree.
+
+Quantity and tree-expansion state persist per viewer in `localStorage`.
+
 ## Open threads
 
-- **Price history graph + week-over-week trend arrow** (requested). InvenTree
+- **`PRODUCT_PART_ID` should be set to 6**, the full MothNode product. Blank
+  auto-picks the assembly with the most BOM lines, which is part 5 (the PCBA).
+- **Hashed asset filenames** would end the cache problem properly; needs a
+  small build step at packaging time. Do not reach for a query string again.
+- **Price history graph + week-over-week trend arrow** (requested, unbuilt). InvenTree
   stores no price history — `PartPricing` holds one current value. Recording a
   series is required first; `/api/part/stocktake/` is writable and carries
   `cost_min`/`cost_max`, or the plugin could own a table via `AppMixin`.
