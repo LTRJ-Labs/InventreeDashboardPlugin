@@ -1,5 +1,6 @@
 """Custom dashboard widgets for LTRJ Labs' InvenTree instance."""
 
+import json
 from pathlib import Path
 
 from plugin import InvenTreePlugin
@@ -10,7 +11,7 @@ try:  # keep the reported version tied to what pip actually installed
 
     __version__ = _pkg_version("inventree-ltrj-dashboard")
 except Exception:  # source checkout, or metadata unavailable
-    __version__ = "0.4.0"
+    __version__ = "0.5.0"
 
 # Set once the widget assets have been confirmed in static storage, so the
 # check below runs at most once per process rather than on every dashboard load.
@@ -35,6 +36,16 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
                 "(e.g. the finished product)."
             ),
             "default": "",
+            "validator": str,
+        },
+        "CONFIG_GROUPS": {
+            "name": "Product configurations",
+            "description": (
+                "JSON describing selectable product options. Each group becomes a "
+                "dropdown in the cost panel; a part listed in any group is counted "
+                "only when its option is selected. Parts in no group always count."
+            ),
+            "default": '{"groups":[{"key":"connectivity","label":"Connectivity","default":"cellular","options":[{"key":"cellular","label":"Cellular","parts":[74]},{"key":"lora","label":"LoRa","parts":[63]},{"key":"both","label":"Cellular + LoRa","parts":[74,63]}]},{"key":"sensing","label":"Sensing","default":"ultrasonic","options":[{"key":"ultrasonic","label":"Ultrasonic","parts":[71]},{"key":"hydrostatic","label":"Hydrostatic","parts":[70]}]}]}',
             "validator": str,
         },
         "LOW_STOCK_FALLBACK": {
@@ -136,6 +147,13 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
         if (context or {}).get("target_model") != "part":
             return []
 
+        # A malformed setting must not take the panel down with it -- fall back
+        # to no configuration groups, which just means every line always counts.
+        try:
+            groups = json.loads(self.get_setting("CONFIG_GROUPS") or "{}").get("groups", [])
+        except (ValueError, TypeError, AttributeError):
+            groups = []
+
         return [
             {
                 "key": "ltrj-cost-breakdown",
@@ -143,6 +161,7 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
                 "description": "BOM cost at any build quantity, with live supplier pricing.",
                 "icon": "ti:currency-dollar:outline",
                 "source": self._asset("cost_panel.js:renderCostPanel"),
+                "context": {"configGroups": groups},
             }
         ]
 

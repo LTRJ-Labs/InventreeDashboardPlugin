@@ -178,26 +178,50 @@ independent strings and drifted -- the package installed as 0.1.5 while the
 plugin reported 0.1.3, which removed the only reliable signal of which code was
 running during a long debugging session.
 
-## Instance data state (2026-09-12)
+## Instance data state (2026-09-14)
 
-Shapes what the widgets can meaningfully show:
+- **73 parts, 8 categories.** Zero stock items, locations, POs, build orders.
+- **No `minimum_stock` on any part**, so "below minimum" is always empty.
+- **Mothnode (pk 6)** is the product; **pk 5** the PCBA. MothNode's BOM was
+  three lines (PCBA, enclosure, screws) and the sensors were attached to
+  nothing, so the ~4.70 CAD figure recorded here previously was the PCBA alone.
+  With the sensors on the BOM the default configuration is **~125 CAD/unit at
+  qty 1**, ~82 at qty 100.
+- **Unpriced, and the reason the panel reports the total as a floor:**
+  `ESP32-S3-WROOM-1-N8R8` (pk 1, no supplier part) and `BG95mPCIE Module`
+  (pk 74, DigiKey supplier part but zero price breaks).
+- **BG95 contributing zero makes "Cellular + LoRa" cost exactly the same as
+  "LoRa"** in the panel. That is the missing price showing through, not a bug
+  in the configuration filter.
+- **pk 72** (JLCPCB Turnkey, dead after the fab-as-a-BOM-line change) deleted.
+- **pk 65 merged into pk 3**: two enclosure records existed, pk 3 held the
+  supplier pricing and pk 65 the correct name. pk 3 survives, renamed
+  `Enclosure380x175x45`; pk 65 deleted. **InvenTree refuses to delete an active
+  part** -- PATCH `active: false` first, or the DELETE returns 400.
+- **`/api/bom/?sub_part=<pk>` is not a supported filter** and silently returns
+  the unfiltered list. Filter BOM lines client-side; a safety check built on
+  that query will read as "still referenced" for every part.
 
-- **70 parts, 8 categories, well organised** — Parts by Category has real data.
-- **Zero stock items, zero locations, zero POs, zero build orders.** Stock
-  Status renders one slice ("Out of stock: 70") until the first goods receipt.
-- **No `minimum_stock` set on any part**, so "below minimum" is always empty.
-  Setting reorder points is what turns that widget from "do I have any" into
-  "what should I reorder"; `LOW_STOCK_FALLBACK` is a stopgap.
-- **Mothnode (pk 6)** is the product assembly; **pk 5** is the PCBA with 59
-  lines. BOM cost ~4.70 CAD, understated — the enclosure (pk 3) and screws
-  (pk 4) have no supplier pricing, and no JLCPCB fab/assembly line exists yet.
-  The cost widget names zero-priced lines deliberately for this reason.
+## Product configurations
 
-## Features (0.4.0)
+Defined by the **`CONFIG_GROUPS`** plugin setting (JSON), so variants change
+without shipping JS. Each group renders as a dropdown in the panel; a part named
+by any group counts only while its option is selected, and a part in no group
+always counts.
+
+| Group | Options | Parts |
+| :--- | :--- | :--- |
+| Connectivity | Cellular *(default)* / LoRa / Cellular + LoRa | BG95 (74) / LR62E (63) / both |
+| Sensing | Ultrasonic *(default)* / Hydrostatic | DYP-A02 (71) / HydrostaticPressureSensor (70) |
+
+Both radios sit on the **mainboard's** BOM (pk 5), not MothNode's, so the filter
+has to apply at every depth of the walk rather than only to top-level lines.
+
+## Features (0.5.0)
 
 | Feature | Where | State |
 | :--- | :--- | :--- |
-| **Cost Breakdown** | **Part page panel** | The main surface. Quantity input + presets, full-width BOM table drilling to 8 levels, per-line unit price / per-build-unit / extended cost, stock coverage chips, category cost bar, make-vs-buy on priced sub-assemblies, click-through via the preview drawer. Repolls every 5 min and self-cancels when detached. |
+| **Cost Breakdown** | **Part page panel** | The main surface. Quantity input + presets, configuration dropdowns, full-width BOM table drilling to 8 levels, per-line unit price / per-build-unit / extended cost, stock coverage chips, category cost bar, make-vs-buy on priced sub-assemblies, click-through via the preview drawer. Repolls every 5 min and self-cancels when detached. |
 | Stock Status | Dashboard | Working. One slice until stock exists; explains why in-widget. |
 | Assembly Unit Cost | Dashboard | The panel's cramped ancestor. Still works; the panel supersedes it. |
 | Parts by Category | Dashboard | Working. Largest 7 categories, tail rolled into "Other". |

@@ -16,6 +16,7 @@ import { palette, esc, fetchAll } from './_chart.js';
 const PRESETS = [1, 5, 10, 25, 50, 100, 250, 1000];
 const QTY_STORE = 'ltrj-panel-qty';
 const OPEN_STORE = 'ltrj-panel-open';
+const CONFIG_STORE = 'ltrj-panel-config';
 const MAX_DEPTH = 8;
 const REFRESH_MS = 5 * 60 * 1000;
 
@@ -33,6 +34,47 @@ function loadQty() {
     const n = Number(localStorage.getItem(QTY_STORE));
     return Number.isFinite(n) && n > 0 ? Math.floor(n) : 1;
   } catch (e) { return 1; }
+}
+
+/* ---------------------------------------------------------- configuration */
+
+/**
+ * Product options come from the CONFIG_GROUPS plugin setting, so the variants
+ * can change without shipping JS. A part named by any group is "optional": it
+ * counts only while its own option is selected. A part in no group always
+ * counts, which is what keeps the common core of the BOM unconditional.
+ */
+function loadChoice(groups) {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(CONFIG_STORE) || '{}'); } catch (e) { /* ignore */ }
+  const choice = {};
+  for (const g of groups) {
+    const keys = (g.options || []).map((o) => o.key);
+    choice[g.key] = keys.includes(saved[g.key]) ? saved[g.key]
+      : (keys.includes(g.default) ? g.default : keys[0]);
+  }
+  return choice;
+}
+
+function saveChoice(choice) {
+  try { localStorage.setItem(CONFIG_STORE, JSON.stringify(choice)); } catch (e) { /* ignore */ }
+}
+
+/** Every part any group can switch on, and the subset currently switched on. */
+function resolveOptional(groups, choice) {
+  const universe = new Set();
+  const included = new Set();
+  for (const g of groups) {
+    for (const o of g.options || []) {
+      for (const pk of o.parts || []) {
+        universe.add(pk);
+        if (choice[g.key] === o.key) included.add(pk);
+      }
+    }
+  }
+  // A part offered by two groups stays in as long as one selection includes it.
+  const excluded = new Set([...universe].filter((pk) => !included.has(pk)));
+  return { universe, included, excluded };
 }
 
 /* ------------------------------------------------------------- formatting */
@@ -182,7 +224,7 @@ function buildIndex(data) {
  * entirely unpriced parts reports a confident cost of zero.
  */
 async function buildTree(partId, need, depth, deps) {
-  const { infoOf, unitCost, bomOf } = deps;
+  const { infoOf, unitCost, bomOf, excluded } = deps;
   const buyUnit = unitCost(partId, need);
   const info = infoOf(partId);
 
@@ -196,6 +238,9 @@ async function buildTree(partId, need, depth, deps) {
       children = [];
       let total = 0;
       for (const line of lines) {
+        // Options the current configuration does not select contribute nothing,
+        // at any depth -- the radios sit on the mainboard's BOM, not the top.
+        if (excluded?.has(line.sub_part)) continue;
         const per = Number(line.quantity ?? 0);
         const kid = await buildTree(line.sub_part, per * need, depth + 1, deps);
         kid.per = per;
@@ -279,6 +324,14 @@ function styles(colours) {
       background: ${colours.series[0]}; border-color: ${colours.series[0]};
       color: #fff; font-weight: 600;
     }
+    .ltrj-select {
+      padding: .3rem .5rem; font: inherit; font-size: .82rem; cursor: pointer;
+      color: var(--mantine-color-text); background: var(--mantine-color-body);
+      border: 1px solid var(--mantine-color-default-border); border-radius: 6px;
+      min-width: 9.5rem;
+    }
+    .ltrj-select:focus { outline: 2px solid ${colours.series[0]}; outline-offset: -1px; }
+    .ltrj-config { display: flex; gap: 1rem; flex-wrap: wrap; }
     .ltrj-figures { display: flex; gap: 1.75rem; align-items: flex-end; }
     .ltrj-fig { text-align: right; }
     .ltrj-fig-v {
@@ -373,6 +426,8 @@ export async function renderCostPanel(target, ctx) {
 
   let qty = loadQty();
   const open = loadSet(OPEN_STORE);
+  const groups = Array.isArray(ctx?.context?.configGroups) ? ctx.context.configGroups : [];
+  let choice = loadChoice(groups);
 
   target.innerHTML = `<div style="padding:1.5rem;color:var(--mantine-color-dimmed);font-size:.85rem">Loading pricing…</div>`;
 
@@ -452,8 +507,9 @@ export async function renderCostPanel(target, ctx) {
   async function render() {
     if (disposed || !target.isConnected) return;
 
+    const { excluded, universe } = resolveOptional(groups, choice);
     const tree = await buildTree(rootId, qty, 0, {
-      infoOf: index.infoOf, unitCost: index.unitCost, bomOf,
+      infoOf: index.infoOf, unitCost: index.unitCost, bomOf, excluded,
     });
     const nodes = tree.children ?? [];
     const total = tree.cost;
@@ -490,6 +546,14 @@ export async function renderCostPanel(target, ctx) {
               <input id="ltrj-qty" class="ltrj-input" type="number" min="1" step="1" value="${qty}">
               ${PRESETS.map((p) => `<button class="ltrj-preset" data-qty="${p}" data-active="${p === qty ? 1 : 0}">${p}</button>`).join('')}
             </div>
+            ${groups.length ? `<div class="ltrj-config" style="margin-top:.85rem">
+              ${groups.map((g) => `<div>
+                <div class="ltrj-label">${esc(g.label ?? g.key)}</div>
+                <select class="ltrj-select" data-group="${esc(g.key)}" style="margin-top:.3rem">
+                  ${(g.options || []).map((o) => `<option value="${esc(o.key)}"${o.key === choice[g.key] ? ' selected' : ''}>${esc(o.label ?? o.key)}</option>`).join('')}
+                </select>
+              </div>`).join('')}
+            </div>` : ''}
           </div>
           <div class="ltrj-figures">
             <div class="ltrj-fig">
@@ -531,7 +595,8 @@ export async function renderCostPanel(target, ctx) {
         </div>
 
         <div class="ltrj-foot">
-          <div>${rows.length} row${rows.length === 1 ? '' : 's'} shown · ${nodes.length} top-level line${nodes.length === 1 ? '' : 's'} · prices in ${esc(index.currency)}</div>
+          <div>${rows.length} row${rows.length === 1 ? '' : 's'} shown · ${nodes.length} top-level line${nodes.length === 1 ? '' : 's'} · prices in ${esc(index.currency)}${
+            excluded.size ? ` · ${excluded.size} of ${universe.size} optional part${universe.size === 1 ? '' : 's'} excluded by configuration` : ''}</div>
           <div style="display:flex;align-items:center;gap:.5rem">
             <span>Pricing fetched ${esc(ageText)}</span>
             <button class="ltrj-btn" id="ltrj-refresh">Refresh</button>
@@ -556,6 +621,13 @@ export async function renderCostPanel(target, ctx) {
 
     target.querySelectorAll('button[data-qty]').forEach((b) =>
       b.addEventListener('click', () => apply(b.dataset.qty)));
+
+    target.querySelectorAll('select[data-group]').forEach((sel) =>
+      sel.addEventListener('change', () => {
+        choice = { ...choice, [sel.dataset.group]: sel.value };
+        saveChoice(choice);
+        render();
+      }));
 
     target.querySelectorAll('.ltrj-caret[data-key]').forEach((el) =>
       el.addEventListener('click', () => {
