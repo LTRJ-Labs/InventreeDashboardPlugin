@@ -300,6 +300,24 @@ function flatten(nodes, open, depth, parentKey, out) {
   return out;
 }
 
+/**
+ * Roll cost up by the category of the part the money is actually spent on.
+ *
+ * Grouping by top-level BOM line instead put every nested part's cost under
+ * its parent's category -- the BG95 module, sitting on the mainboard's BOM,
+ * showed as PCBA spend rather than Electronics. Attribution stops wherever the
+ * cost is taken: a part with its own purchase price is charged to its own
+ * category, and only an assembly priced by rollup passes through to children.
+ */
+function categorySpend(nodes, into = new Map()) {
+  for (const n of nodes ?? []) {
+    const rollup = n.buyCost == null && Array.isArray(n.children) && n.children.length;
+    if (rollup) categorySpend(n.children, into);
+    else into.set(n.category, (into.get(n.category) ?? 0) + n.cost);
+  }
+  return into;
+}
+
 function countUnpriced(nodes, acc = []) {
   for (const n of nodes ?? []) {
     if (!n.priced && !(n.children && n.children.length)) acc.push(n);
@@ -537,11 +555,7 @@ export async function renderCostPanel(target, ctx) {
     const unpriced = countUnpriced(nodes);
 
     // Top-level category split drives the bar and the legend.
-    const categoryTotals = new Map();
-    for (const n of nodes) {
-      categoryTotals.set(n.category, (categoryTotals.get(n.category) ?? 0) + n.cost);
-    }
-    const ordered = [...categoryTotals.entries()].sort((a, b) => b[1] - a[1]);
+    const ordered = [...categorySpend(nodes).entries()].sort((a, b) => b[1] - a[1]);
     const bar = ordered.map(([cat, cost], i) => {
       const pct = total > 0 ? (cost / total) * 100 : 0;
       return `<div style="width:${pct}%;background:${colours.series[i % colours.series.length]}"

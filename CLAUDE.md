@@ -257,7 +257,7 @@ always counts.
 Both radios sit on the **mainboard's** BOM (pk 5), not MothNode's, so the filter
 has to apply at every depth of the walk rather than only to top-level lines.
 
-## Features (0.6.2)
+## Features (0.6.3)
 
 | Feature | Where | State |
 | :--- | :--- | :--- |
@@ -363,3 +363,26 @@ Every figure is a floor until pk 1 (ESP32) is sourced. Note the volume curve is
 carried almost entirely by the PCBA and the BG95: the ultrasonic, hydrostatic
 and solar parts each hold a single price break, so they do not move with
 quantity at all.
+
+## Category attribution (0.6.3)
+
+The cost bar and legend group by **the category of the part the money is
+actually spent on**, not by the top-level BOM line. Grouping by top-level line
+charged every nested part to its parent's category -- the BG95 module sits on
+the mainboard's BOM, so its 66.63 CAD showed as PCBA spend even though the part
+has always been in `Components/Electronics`. Recategorising the part could never
+have fixed that; the rollup was the problem.
+
+Attribution stops wherever the cost is taken: a part with its own purchase price
+is charged to its own category, and only an assembly priced by rollup passes
+through to its children.
+
+**3D printed parts live in `Components/Mechanical`** (the separate
+`Components/3D Printed` category was created and then removed -- printed parts
+are mechanical parts, and the extra level earned nothing). Filament stays in
+`Components/Raw Material`, since it is stocked and consumed by mass rather than
+fitted to anything.
+
+**Deleting a category needs an explicit body**: `DELETE /api/part/category/<pk>/`
+with `{"delete_child_categories": false, "delete_parts": false}`, even when it is
+already empty. Without them it 400s asking for both fields.
