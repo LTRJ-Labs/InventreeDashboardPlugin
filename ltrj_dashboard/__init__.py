@@ -11,7 +11,7 @@ try:  # keep the reported version tied to what pip actually installed
 
     __version__ = _pkg_version("inventree-ltrj-dashboard")
 except Exception:  # source checkout, or metadata unavailable
-    __version__ = "0.7.0"
+    __version__ = "0.7.1"
 
 # Set once the widget assets have been confirmed in static storage, so the
 # check below runs at most once per process rather than on every dashboard load.
@@ -24,7 +24,13 @@ class LTRJDashboardPlugin(SettingsMixin, UserInterfaceMixin, InvenTreePlugin):
     NAME = "LTRJ Dashboard"
     SLUG = "ltrj-dashboard"
     TITLE = "LTRJ Labs Dashboard Widgets"
-    DESCRIPTION = "Stock status, assembly unit cost breakdown, and category mix widgets."
+    # Shown in Admin Center -> Plugins, which is exactly where the install URL
+    # is needed when upgrading, so it lives here rather than only in the README.
+    DESCRIPTION = (
+        "Cost Breakdown panel and dashboard widgets. "
+        "Upgrade: Install Plugin -> git+https://github.com/LTRJ-Labs/InventreeDashboardPlugin.git "
+        "(package inventree-ltrj-dashboard)"
+    )
     VERSION = __version__
     AUTHOR = "LTRJ Labs"
 
