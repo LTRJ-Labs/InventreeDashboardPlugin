@@ -122,6 +122,21 @@ function tierPrice(breaks, need) {
   return { price: hit.p, currency: hit.c };
 }
 
+/**
+ * Minimum order quantity for a supplier part.
+ *
+ * InvenTree 1.5.0 supplier parts have no MOQ field, so manual quotes record it
+ * in the description as "MOQ 100" (also "MOQ: 100", "MOQ=1,000"). Distributor
+ * parts maintained by the sync carry none and default to 1. Suppliers the sync
+ * does not handle -- manufacturer quotes, marketplace listings -- are never
+ * rewritten by it, so the annotation survives.
+ */
+function moqOf(sp) {
+  const m = String(sp?.description ?? '').match(/\bMOQ\b\s*[:=]?\s*([\d,]+)/i);
+  const n = m ? Number(m[1].replace(/,/g, '')) : 1;
+  return Number.isFinite(n) && n > 0 ? n : 1;
+}
+
 /* -------------------------------------------------------------------- data */
 
 /**
@@ -132,7 +147,7 @@ function tierPrice(breaks, need) {
  */
 async function loadPricingData(api, queryClient) {
   const run = async () => {
-    const [supplierParts, breaks, allParts, bomLines] = await Promise.all([
+    const [supplierParts, breaks, allParts, bomLines, companies] = await Promise.all([
       fetchAll(api, '/api/company/part/', { active: true }),
       fetchAll(api, '/api/company/price-break/', {}),
       // /api/bom/ returns no category for its lines even with sub_part_detail
@@ -143,6 +158,8 @@ async function loadPricingData(api, queryClient) {
       // one round trip per node -- 72 sequential calls for MothNode, ~18s of
       // blank panel before the first render, repeated on every refresh.
       fetchAll(api, '/api/bom/', {}),
+      // Names the supplier that won each line, so the comparison is visible.
+      fetchAll(api, '/api/company/', {}),
     ]);
     let rates = {}, currency = 'USD';
     try {
@@ -150,7 +167,7 @@ async function loadPricingData(api, queryClient) {
       rates = fx?.exchange_rates ?? {};
       currency = fx?.base_currency ?? 'USD';
     } catch (e) { /* unconverted prices are better than no panel */ }
-    return { supplierParts, breaks, allParts, bomLines, rates, currency, at: Date.now() };
+    return { supplierParts, breaks, allParts, bomLines, companies, rates, currency, at: Date.now() };
   };
 
   if (queryClient?.fetchQuery) {
@@ -164,7 +181,9 @@ async function loadPricingData(api, queryClient) {
 }
 
 function buildIndex(data) {
-  const { supplierParts, breaks, allParts, bomLines, rates, currency } = data;
+  const { supplierParts, breaks, allParts, bomLines, companies, rates, currency } = data;
+
+  const companyName = new Map((companies ?? []).map((c) => [c.pk, c.name]));
 
   const partInfo = new Map();
   for (const p of allParts) {
@@ -195,17 +214,35 @@ function buildIndex(data) {
   const toBase = (v, cur) => Number(v) / Number(rates[cur || currency] ?? 1);
 
   /** Cheapest supplier unit price for `need` units, in base currency. */
-  function unitCost(partId, need) {
+  /**
+   * Cheapest source for `need` units across every supplier part of `partId`.
+   *
+   * Each supplier keeps its own true ladder -- DigiKey, UnikeyIC, a direct
+   * manufacturer quote -- and the cheapest is chosen per quantity here, rather
+   * than merging them into one synthetic ladder that loses provenance and gets
+   * overwritten by the next sync.
+   *
+   * A supplier whose MOQ exceeds `need` cannot supply it and is skipped. Without
+   * this, a quote that only exists at 100 off was used for a single unit,
+   * because below the smallest break the smallest price applies -- BG95 priced
+   * at Quectel's MOQ-100 rate for a one-off build.
+   */
+  function bestSource(partId, need) {
     let best = null;
     for (const sp of spByPart.get(partId) ?? []) {
+      if (need < moqOf(sp)) continue;
       const hit = tierPrice(bkBySp.get(sp.pk) ?? [], need);
       if (!hit) continue;
       const pack = Number(sp.pack_quantity_native ?? 1) || 1;
       const u = toBase(hit.price, hit.currency) / pack;
-      if (best == null || u < best) best = u;
+      if (best == null || u < best.unit) {
+        best = { unit: u, supplier: companyName.get(sp.supplier) ?? `Supplier ${sp.supplier}` };
+      }
     }
     return best;
   }
+
+  const unitCost = (partId, need) => bestSource(partId, need)?.unit ?? null;
 
   const infoOf = (id) => partInfo.get(id)
     || { name: `Part ${id}`, category: 'Uncategorised', stock: 0, minimum: 0, onOrder: 0 };
@@ -217,7 +254,7 @@ function buildIndex(data) {
   }
   const kidsOf = (id) => childLines.get(id) ?? [];
 
-  return { infoOf, unitCost, kidsOf, currency };
+  return { infoOf, unitCost, bestSource, kidsOf, currency };
 }
 
 /* ---------------------------------------------------------------- costing */
@@ -235,8 +272,9 @@ function buildIndex(data) {
  * entirely unpriced parts reports a confident cost of zero.
  */
 function buildTree(partId, need, depth, deps, ancestry) {
-  const { infoOf, unitCost, kidsOf, excluded } = deps;
-  const buyUnit = unitCost(partId, need);
+  const { infoOf, bestSource, kidsOf, excluded } = deps;
+  const source = bestSource(partId, need);
+  const buyUnit = source?.unit ?? null;
   const info = infoOf(partId);
 
   let children = null;
@@ -284,6 +322,7 @@ function buildTree(partId, need, depth, deps, ancestry) {
     minimum: info.minimum,
     onOrder: info.onOrder,
     need, cost, priced, children, looped,
+    source: buyUnit != null ? source.supplier : null,
     unit: need > 0 ? cost / need : 0,
     buyCost, makeCost,
   };
@@ -414,6 +453,7 @@ function styles(colours) {
     .ltrj-link:hover { color: ${colours.series[0]}; text-decoration: underline; }
     .ltrj-ipn { font-size: .7rem; color: var(--mantine-color-dimmed); }
     .ltrj-cat { font-size: .75rem; color: var(--mantine-color-dimmed); }
+    .ltrj-src { font-size: .66rem; line-height: 1.1; opacity: .8; }
     .ltrj-dim { color: var(--mantine-color-dimmed); }
     .ltrj-chip {
       display: inline-block; padding: .05rem .35rem; border-radius: 3px;
@@ -482,11 +522,31 @@ export async function renderCostPanel(target, ctx) {
 
   const money = makeMoney(index.currency);
 
+  // The web UI is mounted under a basename (`/web` on this instance). Derived
+  // from the live URL rather than hardcoded, so a real href works everywhere.
+  const webBase = (window.location.pathname.match(/^(.*?\/web)(?=\/)/) || [null, '/web'])[1];
+  const partHref = (id) => `${webBase}/part/${id}/`;
+
+  /**
+   * `ctx.preview.open()` always exists and never throws, but the drawer only
+   * renders when the viewer has turned on the ENABLE_PREVIEW_PANEL user setting
+   * -- GlobalPreviewDrawer returns null otherwise. Calling it unconditionally
+   * and returning is what made every part link a dead click for anyone with
+   * the setting off, which is the default. Check the setting, then navigate.
+   */
+  function previewEnabled() {
+    try { return !!ctx?.userSettings?.isSet?.('ENABLE_PREVIEW_PANEL'); }
+    catch (e) { return false; }
+  }
+
   function openPart(id) {
-    try {
-      if (ctx?.preview?.open) { ctx.preview.open('part', id); return; }
-    } catch (e) { /* fall through to a navigation */ }
-    try { ctx?.navigate?.(`/part/${id}/`); } catch (e) { /* ignore */ }
+    if (previewEnabled() && ctx?.preview?.open) {
+      try { ctx.preview.open('part', id); return; } catch (e) { /* navigate instead */ }
+    }
+    if (ctx?.navigate) {
+      try { ctx.navigate(`/part/${id}/`); return; } catch (e) { /* hard navigation below */ }
+    }
+    window.location.assign(partHref(id));
   }
 
   function stockCell(node) {
@@ -514,7 +574,7 @@ export async function renderCostPanel(target, ctx) {
       <td class="l" style="padding-left:${0.6 + row.depth * 1.15}rem">
         <div class="ltrj-name">
           ${caret}
-          <a class="ltrj-link" data-part="${n.id}" title="${esc(n.name)}">${esc(n.name)}</a>
+          <a class="ltrj-link" href="${partHref(n.id)}" data-part="${n.id}" title="${esc(n.name)}">${esc(n.name)}</a>
           ${n.ipn ? `<span class="ltrj-ipn">${esc(n.ipn)}</span>` : ''}
           ${warn}
         </div>
@@ -522,7 +582,8 @@ export async function renderCostPanel(target, ctx) {
       <td class="l ltrj-cat ltrj-hide-sm">${esc(n.category)}</td>
       <td class="ltrj-dim ltrj-hide-sm">${n.per != null ? `×${num(n.per)}` : ''}</td>
       <td>${num(n.need)}</td>
-      <td class="ltrj-dim">${n.need > 0 && n.cost > 0 ? esc(money(n.cost / n.need)) : '—'}</td>
+      <td class="ltrj-dim">${n.need > 0 && n.cost > 0 ? esc(money(n.cost / n.need)) : '—'}${
+        n.source ? `<div class="ltrj-src" title="cheapest source at this quantity">${esc(n.source)}</div>` : ''}</td>
       <td style="font-weight:600">${esc(money(n.cost / qty))}</td>
       <td class="ltrj-hide-sm">${esc(money(n.cost))}</td>
       <td class="l ltrj-hide-sm">${stockCell(n)}</td>
@@ -547,7 +608,7 @@ export async function renderCostPanel(target, ctx) {
 
     const { excluded, universe } = resolveOptional(configGroups, choice);
     const tree = buildTree(rootId, qty, 0, {
-      infoOf: index.infoOf, unitCost: index.unitCost, kidsOf: index.kidsOf, excluded,
+      infoOf: index.infoOf, bestSource: index.bestSource, kidsOf: index.kidsOf, excluded,
     }, new Set());
     const nodes = tree.children ?? [];
     const total = tree.cost;
@@ -673,6 +734,9 @@ export async function renderCostPanel(target, ctx) {
 
     target.querySelectorAll('a[data-part]').forEach((el) =>
       el.addEventListener('click', (e) => {
+        // Modified clicks keep normal link behaviour: the real href opens the
+        // part in a new tab. Only a plain click is routed in-app.
+        if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
         e.preventDefault();
         openPart(Number(el.dataset.part));
       }));

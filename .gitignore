@@ -10,3 +10,6 @@ venv/
 .DS_Store
 dist/
 .gstack/
+
+# Snapshot of the live parts database, produced by fetch_fixture.py
+dev/panel-harness/fixture.js

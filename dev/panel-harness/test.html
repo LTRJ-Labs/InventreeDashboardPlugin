@@ -1,0 +1,67 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Cost panel harness</title>
+<style>
+  body { background:#1a1b1e; color:#c1c2c5; margin:0; font:14px system-ui; }
+  :root {
+    --mantine-color-text:#c1c2c5; --mantine-color-dimmed:#909296; --mantine-color-body:#25262b;
+    --mantine-color-default-border:#373a40; --mantine-color-default-hover:#2c2e33;
+    --mantine-color-yellow-light:#3a2f0b; --mantine-color-yellow-light-color:#ffd43b;
+    --mantine-color-teal-light:#0b3a2f;   --mantine-color-teal-light-color:#38d9a9;
+    --mantine-color-red-light:#3a0b0b;    --mantine-color-red-light-color:#ff6b6b;
+  }
+</style></head>
+<body><div id="out" style="padding:1rem"></div>
+<!--
+  Runs the real cost_panel.js against a snapshot of the live API.
+  Serve the REPO ROOT over http (ES modules will not load from file://):
+      python3 -m http.server 8731
+  then open http://127.0.0.1:8731/dev/panel-harness/test.html
+  Query flags: ?part=<pk>  ?preview  (simulate ENABLE_PREVIEW_PANEL on)
+  Results land on window.__result / window.__err; clicks on window.__nav / __prev.
+-->
+<script type="module">
+const q = new URLSearchParams(location.search);
+const fx = (await import('./fixture.js?v=' + Date.now())).default;
+let calls = 0;
+const api = { get: async (url, cfg) => {
+  calls++;
+  const rows = fx[url];
+  if (!Array.isArray(rows)) return { data: rows };
+  const p = cfg?.params ?? {};
+  let out = rows;
+  if (p.part !== undefined) out = out.filter((r) => r.part === Number(p.part));
+  if (p.active !== undefined) out = out.filter((r) => r.active !== false);
+  const off = p.offset ?? 0, lim = p.limit ?? 500;
+  const page = out.slice(off, off + lim);
+  return { data: { count: out.length, next: off + page.length < out.length ? 'x' : null, results: page } };
+}};
+const partId = Number(q.get('part') || 6);
+const ctx = {
+  api, id: partId, model: 'part',
+  instance: fx['/api/part/'].find((p) => p.pk === partId) || { pk: partId, name: `Part ${partId}` },
+  theme: { colors: {} }, queryClient: null,
+  context: { configGroups: [
+    { key:'connectivity', label:'Connectivity', default:'cellular', options:[
+      { key:'cellular', label:'Cellular', parts:[74] },
+      { key:'lora', label:'LoRa', parts:[63] },
+      { key:'both', label:'Cellular + LoRa', parts:[74,63] } ] },
+    { key:'sensing', label:'Sensing', default:'ultrasonic', options:[
+      { key:'ultrasonic', label:'Ultrasonic', parts:[71] },
+      { key:'hydrostatic', label:'Hydrostatic', parts:[70] } ] } ] },
+  navigate: (to) => { (window.__nav ||= []).push(to); },
+  preview: { open: (m, id) => { (window.__prev ||= []).push(`${m}:${id}`); } },
+  userSettings: { isSet: (k) => k === 'ENABLE_PREVIEW_PANEL' && q.has('preview') },
+};
+try { localStorage.clear(); } catch (e) { /* ignore */ }
+const t0 = performance.now();
+try {
+  const mod = await import('/ltrj_dashboard/static/cost_panel.js?v=' + Date.now());
+  await mod.renderCostPanel(document.getElementById('out'), ctx);
+} catch (e) { window.__err = (e && (e.stack || e.message)) || String(e); }
+window.__result = {
+  ms: Math.round(performance.now() - t0), calls,
+  unit: document.querySelector('.ltrj-fig-v')?.textContent?.trim(),
+  selects: document.querySelectorAll('select[data-group]').length,
+  rows: document.querySelectorAll('.ltrj-grid tbody tr').length,
+};
+</script></body></html>

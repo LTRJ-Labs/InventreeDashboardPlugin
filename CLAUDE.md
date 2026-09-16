@@ -257,7 +257,7 @@ always counts.
 Both radios sit on the **mainboard's** BOM (pk 5), not MothNode's, so the filter
 has to apply at every depth of the walk rather than only to top-level lines.
 
-## Features (0.6.3)
+## Features (0.7.0)
 
 | Feature | Where | State |
 | :--- | :--- | :--- |
@@ -339,30 +339,24 @@ Quantity and tree-expansion state persist per viewer in `localStorage`.
 
 ## Testing the panel without deploying it
 
-`/tmp/paneltest` pattern, worth repeating: dump the five API payloads to a
-`fixture.js`, stub `ctx` (`api.get` serving from the fixture, `id`, `instance`,
-`theme`, `context.configGroups`), serve the directory over **http** -- `file://`
-fails, ES modules need a real origin -- and drive it with the browse skill.
-Catches render-time bugs in seconds instead of a release cycle. Import the module
-as `./cost_panel.js?v=${Date.now()}` or the browser caches it between runs.
-**Wrap the call in try/catch and read the error**; without that this bug looks
-like an infinite load.
+**`dev/panel-harness/`** runs the real `cost_panel.js` in a browser against a
+snapshot of the live API. It lives in the repo because `/tmp` does not survive a
+WSL restart, and it was lost once already.
 
-## Verified unit cost (CAD, 2026-09-14, after the first good sync)
+```bash
+INVENTREE_URL=https://inventory.jaxonsstuff.com INVENTREE_TOKEN=inv-... \
+  python3 dev/panel-harness/fetch_fixture.py      # writes fixture.js (gitignored)
+python3 -m http.server 8731                        # from the REPO ROOT
+# open http://127.0.0.1:8731/dev/panel-harness/test.html
+#   ?part=<pk>   cost a different part (default 6)
+#   ?preview     simulate ENABLE_PREVIEW_PANEL switched on
+```
 
-| Configuration | qty 1 | qty 10 | qty 100 |
-| :--- | ---: | ---: | ---: |
-| **Cellular + Ultrasonic** *(default)* | 192.03 | 162.82 | 133.00 |
-| Cellular + Hydrostatic | 248.43 | 219.22 | 189.41 |
-| LoRa + Ultrasonic | 160.93 | 140.04 | 117.05 |
-| LoRa + Hydrostatic | 217.34 | 196.44 | 173.46 |
-| Cellular + LoRa + Ultrasonic | 227.56 | 198.35 | 168.53 |
-| Cellular + LoRa + Hydrostatic | 283.97 | 254.75 | 224.94 |
-
-Every figure is a floor until pk 1 (ESP32) is sourced. Note the volume curve is
-carried almost entirely by the PCBA and the BG95: the ultrasonic, hydrostatic
-and solar parts each hold a single price break, so they do not move with
-quantity at all.
+`http`, not `file://` -- ES modules need a real origin. Results land on
+`window.__result` / `window.__err`; link clicks record to `window.__nav` and
+`window.__prev`. The harness imports the module with a `?v=` timestamp so edits
+show up without a cache fight. **Always read `window.__err`**: without it, a
+render-time throw looks exactly like an infinite load.
 
 ## Category attribution (0.6.3)
 
@@ -386,3 +380,52 @@ fitted to anything.
 **Deleting a category needs an explicit body**: `DELETE /api/part/category/<pk>/`
 with `{"delete_child_categories": false, "delete_parts": false}`, even when it is
 already empty. Without them it 400s asking for both fields.
+
+## Multi-source pricing and MOQ (0.7.0)
+
+**Each supplier keeps its own real ladder; the panel picks the cheapest per
+quantity.** BG95 has three sources -- DigiKey (sync-maintained), UnikeyIC (public
+listing snapshot), and a direct QUECTEL quote -- as three supplier parts. They
+are deliberately *not* merged into one synthetic ladder: that would lose which
+supplier a price came from, and the next DigiKey sync would overwrite it.
+
+**MOQ lives in the supplier part description** as `MOQ 100` (`MOQ: 100`,
+`MOQ=1,000` also parse). InvenTree 1.5.0 supplier parts have no MOQ or
+lead-time field. A supplier is skipped when the required quantity is below its
+MOQ. Without that, the "below the smallest break, use the smallest price" rule
+priced a single BG95 at Quectel's MOQ-100 rate -- CA$22.52 instead of CA$46.20,
+understating a one-off build by ~$24. Distributor parts carry no annotation and
+default to MOQ 1. The sync only rewrites suppliers it has a provider for, so
+annotations on manual quotes survive.
+
+BG95 source by quantity (verified in the harness):
+
+| Qty | Source | Unit (CAD) |
+| ---: | :--- | ---: |
+| 1-49 | UnikeyIC | 46.20 |
+| 50-99 | UnikeyIC | 44.42 |
+| 100+ | QUECTEL direct | 22.52 |
+
+The unit-price cell names the winning supplier under the price.
+
+**Do not treat a ladder's first break as an MOQ.** It is tempting and wrong here:
+Battery Holder (100), SolarPanel (5), HydrostaticPressureSensor (2) and DYP-A02 (3)
+all have first breaks above 1 without being order minimums, and would become
+unpriced at small quantities.
+
+**UnikeyIC API is not integrated.** Its documentation is not public -- it is
+emailed after an application is reviewed, and access is an *API ID plus API
+key*. The UnikeyIC ladder is a snapshot of the public listing, noted as such in
+the supplier part description, and will go stale.
+
+## Part links (0.7.0)
+
+Part names are real `<a href="/web/part/<pk>/">` links. A plain click opens the
+preview drawer **only if** the viewer has `ENABLE_PREVIEW_PANEL` on, otherwise
+navigates in-app; ctrl/cmd/shift/middle-click fall through to the href for a new
+tab. Before 0.7.0 the panel called `ctx.preview.open()` unconditionally --
+`GlobalPreviewDrawer` returns null when that user setting is off (the default),
+so the call succeeded, rendered nothing, and returned before navigating. Every
+link was a dead click.
+
+The web basename (`/web`) is derived from `location.pathname`, not hardcoded.
