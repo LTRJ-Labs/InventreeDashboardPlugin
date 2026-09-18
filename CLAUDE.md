@@ -251,7 +251,7 @@ always counts.
 
 | Group | Options | Parts |
 | :--- | :--- | :--- |
-| Connectivity | Cellular *(default)* / LoRa / Cellular + LoRa | BG95 (74) / LR62E (63) / both |
+| Connectivity | Cellular *(default)* / LoRa / Cellular + LoRa | BG95 (74) **+ 1NCE SIM (79) + plan (80)** / LR62E (63) / both |
 | Sensing | Ultrasonic *(default)* / Hydrostatic | DYP-A02 (71) / HydrostaticPressureSensor (70) |
 
 Both radios sit on the **mainboard's** BOM (pk 5), not MothNode's, so the filter
@@ -429,3 +429,54 @@ so the call succeeded, rendered nothing, and returned before navigating. Every
 link was a dead click.
 
 The web basename (`/web`) is derived from `location.pathname`, not hardcoded.
+
+## Category policy (2026-09-18)
+
+Every part on the MothNode tree sits in exactly one of **`Components/Electronics`,
+`Components/Mechanical`, `Components/PCBA`**. `Components/Hardware` and
+`Components/Raw Material` were emptied and deleted; screws, vent plug and PETG
+filament moved to Mechanical, the thermistor to Electronics, and the JLCPCB
+fab+assembly services part (pk 73) from uncategorised to PCBA.
+
+Two parts remain outside those three **by design**: `Mothnode` (pk 6,
+`Assemblies/Finished Goods`) and `Mothnode Mainboard PCB` (pk 5,
+`Assemblies/PCBA`). Both are assemblies priced by rollup, so `categorySpend()`
+passes straight through them to their children and neither ever appears in the
+cost legend. Moving them into `Components/*` would change nothing on screen and
+would mix assemblies in with components.
+
+## 1NCE connectivity (2026-09-18)
+
+Two parts, both `Components/Electronics`, both **cellular-only** (listed under
+the `cellular` and `both` connectivity options, so a LoRa build carries
+neither):
+
+| pk | Part | Price |
+| ---: | :--- | :--- |
+| 79 | 1NCE SIM Card Industrial | 2.00 USD |
+| 80 | 1NCE IoT Lifetime Plan (500MB / 250 SMS / 10yr) | 14.00 USD |
+
+Prices are **assumed USD** — quoted to us as "$". Supplier company `1NCE` (pk 42).
+The plan is a one-off per device, which is why it is a BOM line rather than an
+overhead: it is bought once per unit shipped, like the fab+assembly service.
+
+## Nothing on the tree is unpriced (2026-09-18)
+
+With the stale `ESP32-S3-WROOM-1-N8R8` removed from the mainboard BOM, every
+line now prices. The panel reports no floor warning for the first time, so the
+figures below are complete rather than lower bounds.
+
+| Configuration | qty 1 | qty 100 |
+| :--- | ---: | ---: |
+| **Cellular + Ultrasonic** *(default)* | 196.54 | 128.49 |
+| Cellular + Hydrostatic | 252.78 | 184.73 |
+| LoRa + Ultrasonic | 163.60 | 119.34 |
+| LoRa + Hydrostatic | 219.83 | 175.58 |
+| Cellular + LoRa + Ultrasonic | 232.43 | 164.38 |
+| Cellular + LoRa + Hydrostatic | 288.67 | 220.62 |
+
+Legend at the default configuration: Electronics 50%, PCBA 34%, Mechanical 16%.
+
+**Keep `dev/panel-harness/test.html`'s `configGroups` in step with the live
+`CONFIG_GROUPS` plugin setting**, or the harness tests a configuration the
+instance does not have.

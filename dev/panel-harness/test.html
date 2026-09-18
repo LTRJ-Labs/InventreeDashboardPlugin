@@ -42,9 +42,9 @@ const ctx = {
   theme: { colors: {} }, queryClient: null,
   context: { configGroups: [
     { key:'connectivity', label:'Connectivity', default:'cellular', options:[
-      { key:'cellular', label:'Cellular', parts:[74] },
+      { key:'cellular', label:'Cellular', parts:[74,79,80] },
       { key:'lora', label:'LoRa', parts:[63] },
-      { key:'both', label:'Cellular + LoRa', parts:[74,63] } ] },
+      { key:'both', label:'Cellular + LoRa', parts:[74,63,79,80] } ] },
     { key:'sensing', label:'Sensing', default:'ultrasonic', options:[
       { key:'ultrasonic', label:'Ultrasonic', parts:[71] },
       { key:'hydrostatic', label:'Hydrostatic', parts:[70] } ] } ] },
